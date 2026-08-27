@@ -1,0 +1,228 @@
+/**
+ * dsh-notify — system-level desktop notifications (host side).
+ *
+ * 监听 Cordis 事件发系统通知，按平台分派：
+ *   - macOS:   terminal-notifier（-open 点击跳转浏览器对应会话），缺失时
+ *             osascript 兜底（不可点击，仅显示）
+ *   - Windows: PowerShell WinRT toast（点击「查看会话」跳转，无 openUrl 时仅展示）
+ *   - 其他平台: 静默跳过（桌面通知没有通用入口，增益不是依赖）
+ *
+ * 开关读 host settings 的 `notify` namespace（与 client 设置卡片共享同一
+ * 配置）。通知是增益不是依赖：所有失败静默，绝不拖垮宿主进程（含 spawn 的
+ * 异步 error，必须被消费，否则 unhandled 'error' 会崩掉整个宿主）。
+ *
+ * 注入安全（两条约束，都是硬性的）：
+ *   - spawn 调用点的 command 一律是字符串字面量，候选路径逐个判断后再用
+ *     各自的字面量封装，绝不把变量当命令；
+ *   - 通知负载（标题/正文/URL）只作为 argv 传入：Windows 的 toast 脚本是
+ *     -File 执行的静态 .ps1，负载经命名参数进入，脚本内用
+ *     SecurityElement.Escape 构造 XML，不拼进命令字符串。
+ */
+import { existsSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import type { ApprovalRequest, ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
+import type {} from '@deepseek-ai/dsh-user-approval';
+// Type-only: pulls the @deepseek-ai/cordis Events merge (agent/status, agent/error).
+import type {} from '@deepseek-ai/dsh-agent';
+import type { Context } from '@deepseek-ai/cordis';
+
+/** 通知开关（与 settings schema 的 notify 子对象一致）。 */
+export interface NotifyConfig {
+  enabled: boolean
+  approval: boolean
+  turn: boolean
+  sessionDone: boolean
+  error: boolean
+}
+
+/** 当前宿主平台（spawn 前分派，避免在不适用的平台上尝试不存在的二进制）。 */
+const PLATFORM: NodeJS.Platform = process.platform
+
+/** AppleScript 单行脚本：负载经 `--` argv 传入（on run argv）。 */
+const OSASCRIPT_NOTIFY = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv) sound name "Glass"\nend run'
+
+/**
+ * Windows toast 脚本（-File 执行，纯静态）：负载经命名参数（argv）进入，
+ * 脚本内用 SecurityElement.Escape 构造 XML（标题/正文/URL 不经过命令行）。
+ * AUMID 借用 Windows PowerShell 的已注册身份展示 toast（无需额外安装）。
+ * 末尾自删除脚本文件；脚本体里的 `$Title/$Body/$OpenUrl/$xml` 等均为
+ * PowerShell 变量，与 JS 插值无关（本源码没有任何 `${...}` 拼入用户数据）。
+ */
+const POWERSHELL_TOAST_PS1 = [
+  'param([string]$Title, [string]$Body, [string]$OpenUrl)',
+  'Add-Type -AssemblyName System.Runtime.WindowsRuntime',
+  '$null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]',
+  '$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]',
+  '$esc = { param($t) [System.Security.SecurityElement]::Escape([string]$t) }',
+  '$actions = ""',
+  'if ($OpenUrl) { $actions = \'<actions><action content="查看会话" activationType="protocol" arguments="\' + (& $esc $OpenUrl) + \'"/></actions>\' }',
+  '$xml = \'<toast><visual><binding template="ToastGeneric"><text>\' + (& $esc $Title) + \'</text><text>\' + (& $esc $Body) + \'</text></binding></visual>\' + $actions + \'</toast>\'',
+  '$doc = New-Object Windows.Data.Xml.Dom.XmlDocument',
+  '$doc.LoadXml($xml)',
+  '$toast = New-Object Windows.UI.Notifications.ToastNotification $doc',
+  '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(\'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe\').Show($toast)',
+  'Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue',
+].join('\n')
+
+/**
+ * 后台启动一个子进程，失败全程静默。每个 spawn 调用点的 command 都是
+ * 字符串字面量（注入约束），所以一个命令一个薄封装；异步 'error' 必须被
+ * 消费（否则 Node 以 unhandled 'error' 崩溃宿主），同步 throw 也吞掉。
+ * macOS 上 detached 让通知进程在宿主退出后仍可存活；Windows 上
+ * windowsHide 避免闪出控制台窗口。
+ */
+function spawnNotifierSilicon(args: readonly string[]): void {
+  try {
+    const child = spawn('/opt/homebrew/bin/terminal-notifier', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // 同步失败（参数非法等）同样静默。
+  }
+}
+
+function spawnNotifierIntel(args: readonly string[]): void {
+  try {
+    const child = spawn('/usr/local/bin/terminal-notifier', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // 同步失败（参数非法等）同样静默。
+  }
+}
+
+function spawnOsascript(args: readonly string[]): void {
+  try {
+    const child = spawn('osascript', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // 同步失败（参数非法等）同样静默。
+  }
+}
+
+function spawnPowershell(args: readonly string[]): void {
+  try {
+    const child = spawn('powershell.exe', [...args], { stdio: 'ignore', detached: false, windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // 同步失败（参数非法等）同样静默。
+  }
+}
+
+/** macOS 通知：osascript 为主（稳定可靠，带系统声音）。terminal-notifier
+ * 的点击跳转依赖已废弃的 NSUserNotification 私有图标 API（macOS 26 失效），
+ * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。 */
+function notifyMac(title: string, body: string, openUrl: string | undefined): void {
+  if (openUrl !== undefined && openUrl !== '') {
+    // 候选路径逐个判断：spawn 的 command 恒为字面量。
+    if (existsSync('/opt/homebrew/bin/terminal-notifier')) {
+      spawnNotifierSilicon(['-message', body, '-title', title, '-open', openUrl, '-sound', 'Glass'])
+      return
+    }
+    if (existsSync('/usr/local/bin/terminal-notifier')) {
+      spawnNotifierIntel(['-message', body, '-title', title, '-open', openUrl, '-sound', 'Glass'])
+      return
+    }
+  }
+  spawnOsascript(['-e', OSASCRIPT_NOTIFY, '--', title, body])
+}
+
+/**
+ * Windows 通知：PowerShell WinRT toast（Win10+ 自带，无第三方依赖）。
+ * 把静态 .ps1 写到临时目录后以 -File 执行，标题/正文/URL 作为命名参数
+ * （argv）传入；脚本内用 SecurityElement.Escape 构造 XML 负载并自删除，
+ * 用户数据不经过命令行，杜绝命令注入。
+ */
+function notifyWindows(title: string, body: string, openUrl: string | undefined): void {
+  let psPath: string
+  try {
+    psPath = join(tmpdir(), `dsh-notify-${randomUUID()}.ps1`)
+    writeFileSync(psPath, POWERSHELL_TOAST_PS1, 'utf8')
+  } catch {
+    return // 临时脚本写入失败：静默
+  }
+  const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', psPath, '-Title', title, '-Body', body]
+  if (openUrl !== undefined && openUrl !== '') args.push('-OpenUrl', openUrl)
+  spawnPowershell(args)
+}
+
+/**
+ * 发一条系统通知。fire-and-forget：所有失败静默，不影响主流程。
+ * @param title - 通知标题。
+ * @param body - 通知正文。
+ * @param openUrl - 点击通知要打开的 URL（浏览器会话 deep-link）；为空则不可点击。
+ */
+function systemNotify(title: string, body: string, openUrl: string | undefined): void {
+  switch (PLATFORM) {
+    case 'darwin':
+      notifyMac(title, body, openUrl)
+      return
+    case 'win32':
+      notifyWindows(title, body, openUrl)
+      return
+    default:
+      // 其他平台没有可靠的桌面通知入口：静默跳过（增益不是依赖）。
+      return
+  }
+}
+
+/** 单行化 + 限长（≤max 字符，尾部 …）。 */
+function summaryOf(text: string | undefined, max = 120): string {
+  if (text === undefined || text === '') return ''
+  const oneLine = text.replace(/\s+/gu, ' ').trim()
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, Math.max(1, max - 1))}…`
+}
+
+/**
+ * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
+ * 总开关与各事件开关。点击通知跳转浏览器对应会话（client 读 `?session=`）。
+ * @param ctx - host context（含 settings 服务的 `notify` scope）。
+ * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
+ * @param baseUrl - 浏览器地址（默认 3080）。
+ */
+export function applySystemNotify(
+  ctx: Context & { on: Context['on'] },
+  configOf: () => NotifyConfig,
+  baseUrl = 'http://127.0.0.1:3080',
+): void {
+  const sessionOpenUrl = (sessionId: string): string =>
+    `${baseUrl}/?session=${encodeURIComponent(sessionId)}`
+  const enabled = (): boolean => configOf().enabled
+
+  // 轮次完成：agent 从 running 回到 idle。
+  ctx.on('agent/status', (payload: { agent: { id: string }; status: string }) => {
+    if (payload.status !== 'idle') return
+    if (!enabled() || !configOf().turn) return
+    systemNotify('轮次完成', '该会话已结束一轮，可以切回查看', sessionOpenUrl(payload.agent.id))
+  }, { global: true })
+  // 审批请求：waterfall 事件，只观察必须 next() 委托。
+  ctx.on('approval/request', (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome> => {
+    if (enabled() && configOf().approval) {
+      const detail = req.reason !== undefined && req.reason !== ''
+        ? `${req.toolName} · ${req.reason}`
+        : req.toolName
+      systemNotify('需要审批', summaryOf(detail, 80), sessionOpenUrl(req.agent.id))
+    }
+    return next()
+  }, { global: true })
+  // 错误：受总开关 + error 子开关控制，同一会话 30s 内只发一条避免刷屏。
+  const lastErrorAt = new Map<string, number>()
+  ctx.on('agent/error', (payload: { agent: { id: string }; error: unknown }) => {
+    if (!enabled() || !configOf().error) return
+    const now = Date.now()
+    if (now - (lastErrorAt.get(payload.agent.id) ?? 0) < 30_000) return
+    lastErrorAt.set(payload.agent.id, now)
+    const detail = String((payload.error instanceof Error && payload.error.message) || payload.error || '未知错误')
+    systemNotify('Agent 出错', summaryOf(detail, 80), sessionOpenUrl(payload.agent.id))
+  }, { global: true })
+  // 会话完成：agent 被销毁即视为会话结束（与轮次完成区分开）。
+  ctx.on('agent/disposed', (payload: { agent: { id: string } }) => {
+    if (!enabled() || !configOf().sessionDone) return
+    systemNotify('会话完成', '该会话已完成，可以切回查看', sessionOpenUrl(payload.agent.id))
+  }, { global: true })
+}

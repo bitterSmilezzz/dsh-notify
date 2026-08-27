@@ -1,0 +1,13 @@
+# dsh-notify — 系统桌面通知（独立插件包）
+#
+# host 半区监听 Cordis 事件（agent/status、approval/request、agent/error、
+# agent/disposed）发系统通知；client 半区提供设置卡片 + 点通知跳会话。
+# 配置存 host settings namespace `notify`（「设置 → 插件 → 配置」卡片 key 同名）。
+#
+# Install:   dsh plugin --profile <profile> add <path-or-github>
+
+- insert:
+    - id: dsh-notify
+      name: dsh-notify
+      inject:
+        - settings
