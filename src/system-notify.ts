@@ -18,7 +18,7 @@
  *     -File 执行的静态 .ps1，负载经命名参数进入，脚本内用
  *     SecurityElement.Escape 构造 XML，不拼进命令字符串。
  */
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,13 +104,16 @@ function spawnOsascript(args: readonly string[]): void {
   }
 }
 
-function spawnPowershell(args: readonly string[]): void {
+function spawnPowershell(args: readonly string[], onErrorCleanup?: () => void): void {
   try {
     const child = spawn('powershell.exe', [...args], { stdio: 'ignore', detached: false, windowsHide: true })
-    child.on('error', () => {})
+    child.on('error', () => {
+      onErrorCleanup?.() // spawn 失败（脚本未运行）：兜底删临时文件
+    })
     child.unref()
   } catch {
     // 同步失败（参数非法等）同样静默。
+    onErrorCleanup?.()
   }
 }
 
@@ -161,7 +164,10 @@ function notifyWindows(title: string, body: string, openUrl: string | undefined)
   }
   const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', psPath, '-Title', title, '-Body', body]
   if (openUrl !== undefined && openUrl !== '') args.push('-OpenUrl', openUrl)
-  spawnPowershell(args)
+  // spawn 失败兜底删除临时脚本（正常流程由脚本内自删）。
+  spawnPowershell(args, () => {
+    try { unlinkSync(psPath) } catch { /* 已删除则忽略 */ }
+  })
 }
 
 /**
