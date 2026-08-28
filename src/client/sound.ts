@@ -31,9 +31,28 @@ function ensureAudio(): boolean {
 function warmAudio(): void {
   if (!audioReady) ensureAudio()
 }
-if (typeof document !== 'undefined') {
-  document.addEventListener('pointerdown', warmAudio, { passive: true })
-  document.addEventListener('keydown', warmAudio, { passive: true })
+
+/**
+ * 挂载音频预热：注册 document 级预热监听，返回 disposer 移除监听并关闭
+ * AudioContext。由插件 fiber 的 ctx.effect 挂载，避免模块副作用在插件
+ * update/HMR 时残留（每次 update 旧监听不清理会重复累积）。
+ */
+export function mountSoundWarmup(): () => void {
+  if (typeof document !== 'undefined') {
+    document.addEventListener('pointerdown', warmAudio, { passive: true })
+    document.addEventListener('keydown', warmAudio, { passive: true })
+  }
+  return () => {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('pointerdown', warmAudio)
+      document.removeEventListener('keydown', warmAudio)
+    }
+    if (audioCtx !== null) {
+      try { void audioCtx.close() } catch { /* noop */ }
+      audioCtx = null
+    }
+    audioReady = false
+  }
 }
 
 function tone(freq: number, start: number, dur: number, type: OscillatorType = 'sine', gain = 0.16): void {

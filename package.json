@@ -54,6 +54,13 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
+    "searchTerms": [
+      "桌面通知",
+      "通知",
+      "审批提醒",
+      "轮次完成",
+      "notify"
+    ],
     "client": {
       "platform": "web",
       "inject": [

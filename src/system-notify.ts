@@ -186,7 +186,7 @@ function summaryOf(text: string | undefined, max = 120): string {
  * @param baseUrl - 浏览器地址（默认 3080）。
  */
 export function applySystemNotify(
-  ctx: Context & { on: Context['on'] },
+  ctx: Context,
   configOf: () => NotifyConfig,
   baseUrl = 'http://127.0.0.1:3080',
 ): void {
@@ -195,7 +195,8 @@ export function applySystemNotify(
   const enabled = (): boolean => configOf().enabled
 
   // 轮次完成：agent 从 running 回到 idle。
-  ctx.on('agent/status', (payload: { agent: { id: string }; status: string }) => {
+  // payload 类型由 dsh-agent 的 Events 合并推断（agent: Agent; status: AgentStatus）。
+  ctx.on('agent/status', (payload) => {
     if (payload.status !== 'idle') return
     if (!enabled() || !configOf().turn) return
     systemNotify('轮次完成', '该会话已结束一轮，可以切回查看', sessionOpenUrl(payload.agent.id))
@@ -211,17 +212,25 @@ export function applySystemNotify(
     return next()
   }, { global: true })
   // 错误：受总开关 + error 子开关控制，同一会话 30s 内只发一条避免刷屏。
+  // Map 只在写新时间戳时清理已过期的条目，防止长期运行后无界增长。
+  const ERROR_DEDUP_MS = 30_000
   const lastErrorAt = new Map<string, number>()
-  ctx.on('agent/error', (payload: { agent: { id: string }; error: unknown }) => {
+  ctx.on('agent/error', (payload) => {
     if (!enabled() || !configOf().error) return
     const now = Date.now()
-    if (now - (lastErrorAt.get(payload.agent.id) ?? 0) < 30_000) return
+    // 顺带清理早已过期的旧条目（≤30s 窗口外的记录不再有去重价值）。
+    if (lastErrorAt.size >= 64) {
+      for (const [id, at] of lastErrorAt) {
+        if (now - at >= ERROR_DEDUP_MS) lastErrorAt.delete(id)
+      }
+    }
+    if (now - (lastErrorAt.get(payload.agent.id) ?? 0) < ERROR_DEDUP_MS) return
     lastErrorAt.set(payload.agent.id, now)
     const detail = String((payload.error instanceof Error && payload.error.message) || payload.error || '未知错误')
     systemNotify('Agent 出错', summaryOf(detail, 80), sessionOpenUrl(payload.agent.id))
   }, { global: true })
   // 会话完成：agent 被销毁即视为会话结束（与轮次完成区分开）。
-  ctx.on('agent/disposed', (payload: { agent: { id: string } }) => {
+  ctx.on('agent/disposed', (payload) => {
     if (!enabled() || !configOf().sessionDone) return
     systemNotify('会话完成', '该会话已完成，可以切回查看', sessionOpenUrl(payload.agent.id))
   }, { global: true })

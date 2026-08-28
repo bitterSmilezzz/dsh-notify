@@ -24,6 +24,7 @@ dsh plugin --profile <profile> add <path-to-repo>
 - macOS：可选 `terminal-notifier`（`/opt/homebrew/bin/` 或 `/usr/local/bin/`，仅有点击跳转需要；缺失自动降级 osascript 仅展示）
 - Windows：PowerShell 5+（Win10/11 自带，无第三方依赖）
 - 通知走系统级（terminal-notifier / osascript / WinRT toast），不经浏览器 Notification API
+- 生命周期脚本：**无**（无 preinstall/install/postinstall/prepare）
 
 ## 权限
 
@@ -34,6 +35,7 @@ dsh plugin --profile <profile> add <path-to-repo>
 - macOS 通知需在「系统设置 → 通知」中允许宿主 App（终端/Node）发送通知，否则静默丢失；设置卡片提供直达入口。
 - terminal-notifier 的点击跳转依赖已废弃的 NSUserNotification 私有 API（macOS 26 上可能失效），届时自动降级为 osascript 仅展示。
 - 所有通知失败均静默（fire-and-forget），不影响宿主进程。
+- settings namespace 使用 `notify`（非 dsh- 前缀）：若与其它插件 namespace 撞名，后注册方会 throw；冲突时需改名为 `dsh-notify`。
 
 ## 开发
 

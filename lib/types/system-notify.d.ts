@@ -14,7 +14,5 @@ export interface NotifyConfig {
  * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
  * @param baseUrl - 浏览器地址（默认 3080）。
  */
-export declare function applySystemNotify(ctx: Context & {
-    on: Context['on'];
-}, configOf: () => NotifyConfig, baseUrl?: string): void;
+export declare function applySystemNotify(ctx: Context, configOf: () => NotifyConfig, baseUrl?: string): void;
 //# sourceMappingURL=system-notify.d.ts.map

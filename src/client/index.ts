@@ -17,6 +17,7 @@ import { CSS } from './styles.ts'
 import { bindConfigScope } from './config.ts'
 import { NotifySettingsCard } from './settings-card.tsx'
 import { applySessionDeepLink } from './deep-link.ts'
+import { mountSoundWarmup } from './sound.ts'
 
 export { zh, en }
 
@@ -41,6 +42,8 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(tag)
     return () => tag.remove()
   }, 'dsh-notify: styles')
+  // 音效预热监听 + AudioContext 生命周期随 fiber 挂载/回收（防 update/HMR 泄漏）。
+  ctx.effect(() => mountSoundWarmup(), 'dsh-notify: sound warmup')
   const t = ctx.locale.bind(NS)
 
   // 插件配置卡片（settings.plugin.item）
