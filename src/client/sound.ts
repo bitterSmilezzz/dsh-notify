@@ -81,9 +81,18 @@ const SOUND_PATTERNS: Record<SoundKind, () => void> = {
   sessionDone: () => { tone(523, 0, 0.16); tone(659, 0.18, 0.16); tone(784, 0.36, 0.32) },
 }
 
-/** 播放一类通知音效（受 config.sound 开关控制）。 */
+/** 同类音效节流窗口（ms）：连续通知（如瀑布审批）不重复堆叠音效节点。 */
+const SOUND_THROTTLE_MS = 300
+let lastPlayAt: Record<SoundKind, number> = {
+  approval: 0, question: 0, turn: 0, sessionDone: 0,
+}
+
+/** 播放一类通知音效（受 config.sound 开关控制；同类 300ms 内去重）。 */
 export function playSound(kind: SoundKind): void {
   if (!config.sound) return
+  const now = performance.now()
+  if (now - lastPlayAt[kind] < SOUND_THROTTLE_MS) return
+  lastPlayAt[kind] = now
   if (!ensureAudio()) return
   SOUND_PATTERNS[kind]()
 }
