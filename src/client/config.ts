@@ -36,7 +36,8 @@ let notifyScope: { set(field: string, value: unknown): Promise<void> } | undefin
 
 /** 广播配置变更（控制器/设置卡片监听，驱动重渲染与动态注册）。 */
 function announce(): void {
-  window.dispatchEvent(new CustomEvent('dsh-notify:config', { detail: config }))
+  // detail 传浅拷贝：消费方绝不拿到全局真相的可变引用。
+  window.dispatchEvent(new CustomEvent('dsh-notify:config', { detail: { ...config } }))
 }
 
 /**
