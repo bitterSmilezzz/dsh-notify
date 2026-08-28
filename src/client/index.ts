@@ -4,7 +4,7 @@
  * 组合：设置卡片（settings.plugin.item, key: notify）、通知声音、点通知跳会话
  * deep-link。配置由 host settings 服务持有（config.ts）。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the settings slot merges (settings.general.item / settings.plugins.tab).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the ui-settings-plugins SlotMap merge (the settings.plugin.item card seat).

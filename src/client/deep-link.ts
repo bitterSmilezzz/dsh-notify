@@ -5,7 +5,7 @@
  * 会话列表就绪后执行（首次加载可能还没到），成功后清除 URL 参数避免刷新
  * 重复跳转。用 store 订阅而非轮询，带超时上限防止无效 id 无限等待。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 
 /** deep-link 等待会话出现的最大时长（毫秒）。 */
 const LINK_TIMEOUT_MS = 15_000

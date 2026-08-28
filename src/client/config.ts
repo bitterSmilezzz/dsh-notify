@@ -4,7 +4,7 @@
  * 配置权威源是 host settings 服务（namespace `notify`）。本模块持有运行时
  * 快照 `config`（控制器同步读取），提供 host scope 的绑定与写入。
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the settings domain's Context merge (ctx.settingsScope).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
