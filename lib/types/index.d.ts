@@ -11,9 +11,8 @@
  * inject 为最小集：settings（注册 namespace + 读取通知开关）。
  */
 import type { Context } from '@deepseek-ai/cordis';
-import type { SettingsNamespace } from '@deepseek-ai/dsh-settings';
 /** 插件配置页的 settings namespace：注册后出现在「设置 → 插件 → 配置」分派列表。 */
-export declare const NOTIFY_SETTINGS_NAMESPACE: SettingsNamespace;
+export declare const NOTIFY_SETTINGS_NAMESPACE = "notify";
 /** Host context slice this plugin consumes. */
 type NotifyHostContext = Context & {
     settings: {

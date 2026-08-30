@@ -13,13 +13,11 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-agent';
 import type {} from '@deepseek-ai/dsh-user-approval';
-import { settingsNamespace } from '@deepseek-ai/dsh-settings';
-import type { SettingsNamespace } from '@deepseek-ai/dsh-settings';
 import z from '@deepseek-ai/schemastery';
 import { applySystemNotify, type NotifyConfig } from './system-notify.ts';
 
 /** 插件配置页的 settings namespace：注册后出现在「设置 → 插件 → 配置」分派列表。 */
-export const NOTIFY_SETTINGS_NAMESPACE: SettingsNamespace = settingsNamespace('notify')
+export const NOTIFY_SETTINGS_NAMESPACE = 'notify'
 
 /** Host context slice this plugin consumes. */
 type NotifyHostContext = Context & {

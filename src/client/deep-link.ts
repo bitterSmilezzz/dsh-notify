@@ -6,6 +6,8 @@
  * 重复跳转。用 store 订阅而非轮询，带超时上限防止无效 id 无限等待。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the session controller Context merge (ctx.sessions) in alpha.2.
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 
 /** deep-link 等待会话出现的最大时长（毫秒）。 */
 const LINK_TIMEOUT_MS = 15_000
