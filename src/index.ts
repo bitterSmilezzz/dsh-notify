@@ -45,18 +45,23 @@ export function apply(ctx: NotifyHostContext, _config: Record<string, never> = {
 
   // 系统级桌面通知：监听 Cordis 事件，读 settings 配置判断开关。
   const notifyConfig = (): NotifyConfig => {
-    const value = notifyScope.get() as unknown as { enabled?: boolean; approval?: boolean; turn?: boolean; sessionDone?: boolean; error?: boolean }
+    const value = notifyScope.get() as unknown as { enabled?: boolean; approval?: boolean; turn?: boolean; sessionDone?: boolean; error?: boolean; sound?: boolean }
     return {
       enabled: value.enabled ?? true,
       approval: value.approval ?? true,
       turn: value.turn ?? true,
       sessionDone: value.sessionDone ?? true,
       error: value.error ?? true,
+      sound: value.sound ?? true,
     }
   }
-  // 深链基址：从 webServer 服务推导实际监听端口（官方 dsh-web-app 同款读取），
-  // 非 3080 部署的点击跳转不再失效；读不到回落默认值。
-  const webServer = ctx.get('webServer') as { port?: unknown } | undefined
-  const port = typeof webServer?.port === 'number' && webServer.port > 0 ? webServer.port : 3080
-  applySystemNotify(ctx, notifyConfig, `http://127.0.0.1:${port}`)
+  // 深链基址：惰性读 webServer 实际监听端口（官方 dsh-web-app 同款读取），每次通知
+  // 都重新解析——apply 早于 webServer 就绪、或用 --port 起非默认端口时，
+  // 一次性快照会永久停在回落值、点击跳转静默失效。
+  const baseUrlOf = (): string => {
+    const webServer = ctx.get('webServer') as { port?: unknown } | undefined
+    const port = typeof webServer?.port === 'number' && webServer.port > 0 ? webServer.port : 3080
+    return `http://127.0.0.1:${port}`
+  }
+  applySystemNotify(ctx, notifyConfig, baseUrlOf)
 }

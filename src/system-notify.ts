@@ -36,6 +36,8 @@ export interface NotifyConfig {
   turn: boolean
   sessionDone: boolean
   error: boolean
+  /** 提示音：true=显式 Glass，false=跟随系统默认（仅 macOS 分支消费）。 */
+  sound: boolean
 }
 
 /** 当前宿主平台（spawn 前分派，避免在不适用的平台上尝试不存在的二进制）。 */
@@ -43,6 +45,10 @@ const PLATFORM: NodeJS.Platform = process.platform
 
 /** AppleScript 单行脚本：负载经 `--` argv 传入（on run argv）。 */
 const OSASCRIPT_NOTIFY = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv) sound name "Glass"\nend run'
+/** sound 关闭时的变体：不带 sound name 子句 → 跟随系统默认提示音。
+ *  macOS 侧 terminal-notifier / osascript 都拿不到真静音（无 "none" 取值），
+ *  故本开关的语义是「Glass 内置音」与「系统默认音」之差，不是静音。 */
+const OSASCRIPT_NOTIFY_DEFAULT_SOUND = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run'
 
 /**
  * Windows toast 脚本（-File 执行，纯静态）：负载经命名参数（argv）进入，
@@ -124,7 +130,8 @@ let notifierPath: string | null | undefined = undefined
 /** macOS 通知：osascript 为主（稳定可靠，带系统声音）。terminal-notifier
  * 的点击跳转依赖已废弃的 NSUserNotification 私有图标 API（macOS 26 失效），
  * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。 */
-function notifyMac(title: string, body: string, openUrl: string | undefined): void {
+function notifyMac(title: string, body: string, openUrl: string | undefined, sound: boolean): void {
+  const soundArgs = sound ? ['-sound', 'Glass'] : []
   if (openUrl !== undefined && openUrl !== '') {
     // 候选路径逐个判断（仅首次）：spawn 的 command 恒为字面量。
     if (notifierPath === undefined) {
@@ -137,15 +144,15 @@ function notifyMac(title: string, body: string, openUrl: string | undefined): vo
       }
     }
     if (notifierPath === '/opt/homebrew/bin/terminal-notifier') {
-      spawnNotifierSilicon(['-message', body, '-title', title, '-open', openUrl, '-sound', 'Glass'])
+      spawnNotifierSilicon(['-message', body, '-title', title, '-open', openUrl, ...soundArgs])
       return
     }
     if (notifierPath === '/usr/local/bin/terminal-notifier') {
-      spawnNotifierIntel(['-message', body, '-title', title, '-open', openUrl, '-sound', 'Glass'])
+      spawnNotifierIntel(['-message', body, '-title', title, '-open', openUrl, ...soundArgs])
       return
     }
   }
-  spawnOsascript(['-e', OSASCRIPT_NOTIFY, '--', title, body])
+  spawnOsascript(['-e', sound ? OSASCRIPT_NOTIFY : OSASCRIPT_NOTIFY_DEFAULT_SOUND, '--', title, body])
 }
 
 /**
@@ -175,11 +182,13 @@ function notifyWindows(title: string, body: string, openUrl: string | undefined)
  * @param title - 通知标题。
  * @param body - 通知正文。
  * @param openUrl - 点击通知要打开的 URL（浏览器会话 deep-link）；为空则不可点击。
+ * @param sound - 提示音开关（仅 macOS 分支生效：true=显式 Glass，false=跟随系统默认；
+ *                Windows WinRT toast 的音频由其 XML 决定，不受此开关影响）。
  */
-function systemNotify(title: string, body: string, openUrl: string | undefined): void {
+function systemNotify(title: string, body: string, openUrl: string | undefined, sound: boolean): void {
   switch (PLATFORM) {
     case 'darwin':
-      notifyMac(title, body, openUrl)
+      notifyMac(title, body, openUrl, sound)
       return
     case 'win32':
       notifyWindows(title, body, openUrl)
@@ -218,10 +227,10 @@ function isSubagent(agent: unknown): boolean {
 export function applySystemNotify(
   ctx: Context,
   configOf: () => NotifyConfig,
-  baseUrl = 'http://127.0.0.1:3080',
+  baseUrl: string | (() => string) = 'http://127.0.0.1:3080',
 ): void {
   const sessionOpenUrl = (sessionId: string): string =>
-    `${baseUrl}/?session=${encodeURIComponent(sessionId)}`
+    `${typeof baseUrl === 'function' ? baseUrl() : baseUrl}/?session=${encodeURIComponent(sessionId)}`
   const enabled = (): boolean => configOf().enabled
 
   // 轮次完成：agent 从 running 回到 idle。
@@ -230,7 +239,7 @@ export function applySystemNotify(
     if (payload.status !== 'idle') return
     if (isSubagent(payload.agent)) return
     if (!enabled() || !configOf().turn) return
-    systemNotify('轮次完成', '该会话已结束一轮，可以切回查看', sessionOpenUrl(payload.agent.id))
+    systemNotify('轮次完成', '该会话已结束一轮，可以切回查看', sessionOpenUrl(payload.agent.id), configOf().sound)
   }, { global: true })
   // 审批请求：waterfall 事件，只观察必须 next() 委托。通知体包 try/catch——
   // configOf 或属性访问一旦同步抛出，next() 不执行会否决整条链（卡死审批流）。
@@ -240,7 +249,7 @@ export function applySystemNotify(
         const detail = req.reason !== undefined && req.reason !== ''
           ? `${req.toolName} · ${req.reason}`
           : req.toolName
-        systemNotify('需要审批', summaryOf(detail, 80), sessionOpenUrl(req.agent.id))
+        systemNotify('需要审批', summaryOf(detail, 80), sessionOpenUrl(req.agent.id), configOf().sound)
       }
     } catch { /* 通知是增益不是依赖：观察失败不阻断审批链 */ }
     return next()
@@ -262,12 +271,12 @@ export function applySystemNotify(
     if (now - (lastErrorAt.get(payload.agent.id) ?? 0) < ERROR_DEDUP_MS) return
     lastErrorAt.set(payload.agent.id, now)
     const detail = String((payload.error instanceof Error && payload.error.message) || payload.error || '未知错误')
-    systemNotify('Agent 出错', summaryOf(detail, 80), sessionOpenUrl(payload.agent.id))
+    systemNotify('Agent 出错', summaryOf(detail, 80), sessionOpenUrl(payload.agent.id), configOf().sound)
   }, { global: true })
   // 会话完成：agent 被销毁即视为会话结束（与轮次完成区分开）。
   ctx.on('agent/disposed', (payload) => {
     if (isSubagent(payload.agent)) return
     if (!enabled() || !configOf().sessionDone) return
-    systemNotify('会话完成', '该会话已完成，可以切回查看', sessionOpenUrl(payload.agent.id))
+    systemNotify('会话完成', '该会话已完成，可以切回查看', sessionOpenUrl(payload.agent.id), configOf().sound)
   }, { global: true })
 }

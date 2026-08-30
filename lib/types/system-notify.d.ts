@@ -6,6 +6,8 @@ export interface NotifyConfig {
     turn: boolean;
     sessionDone: boolean;
     error: boolean;
+    /** 提示音：true=显式 Glass，false=跟随系统默认（仅 macOS 分支消费）。 */
+    sound: boolean;
 }
 /**
  * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
@@ -14,5 +16,5 @@ export interface NotifyConfig {
  * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
  * @param baseUrl - 浏览器地址（默认 3080）。
  */
-export declare function applySystemNotify(ctx: Context, configOf: () => NotifyConfig, baseUrl?: string): void;
+export declare function applySystemNotify(ctx: Context, configOf: () => NotifyConfig, baseUrl?: string | (() => string)): void;
 //# sourceMappingURL=system-notify.d.ts.map
