@@ -56,5 +56,9 @@ export function apply(ctx: NotifyHostContext, _config: Record<string, never> = {
       error: value.error ?? true,
     }
   }
-  applySystemNotify(ctx, notifyConfig)
+  // 深链基址：从 webServer 服务推导实际监听端口（官方 dsh-web-app 同款读取），
+  // 非 3080 部署的点击跳转不再失效；读不到回落默认值。
+  const webServer = ctx.get('webServer') as { port?: unknown } | undefined
+  const port = typeof webServer?.port === 'number' && webServer.port > 0 ? webServer.port : 3080
+  applySystemNotify(ctx, notifyConfig, `http://127.0.0.1:${port}`)
 }

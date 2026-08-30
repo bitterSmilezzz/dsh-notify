@@ -198,6 +198,17 @@ function summaryOf(text: string | undefined, max = 120): string {
 }
 
 /**
+ * subagent 会话过滤：SessionHeader.origin === 'subagent'（dsh-session 官方判定，
+ * 如 session-controller history.js）。subagent 也会打 agent/status/error/disposed
+ * 全局事件——通知噪音且深链指向会话列表没有的 id（client 空等超时，点击无响应）。
+ * 结构化读取：类型面不可达时 undefined 一律视为主会话（行为与旧版一致）。
+ */
+function isSubagent(agent: unknown): boolean {
+  const origin = (agent as { session?: { header?: { origin?: unknown } } } | null | undefined)?.session?.header?.origin
+  return origin === 'subagent'
+}
+
+/**
  * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
  * 总开关与各事件开关。点击通知跳转浏览器对应会话（client 读 `?session=`）。
  * @param ctx - host context（含 settings 服务的 `notify` scope）。
@@ -217,17 +228,21 @@ export function applySystemNotify(
   // payload 类型由 dsh-agent 的 Events 合并推断（agent: Agent; status: AgentStatus）。
   ctx.on('agent/status', (payload) => {
     if (payload.status !== 'idle') return
+    if (isSubagent(payload.agent)) return
     if (!enabled() || !configOf().turn) return
     systemNotify('轮次完成', '该会话已结束一轮，可以切回查看', sessionOpenUrl(payload.agent.id))
   }, { global: true })
-  // 审批请求：waterfall 事件，只观察必须 next() 委托。
+  // 审批请求：waterfall 事件，只观察必须 next() 委托。通知体包 try/catch——
+  // configOf 或属性访问一旦同步抛出，next() 不执行会否决整条链（卡死审批流）。
   ctx.on('approval/request', (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome> => {
-    if (enabled() && configOf().approval) {
-      const detail = req.reason !== undefined && req.reason !== ''
-        ? `${req.toolName} · ${req.reason}`
-        : req.toolName
-      systemNotify('需要审批', summaryOf(detail, 80), sessionOpenUrl(req.agent.id))
-    }
+    try {
+      if (!isSubagent(req.agent) && enabled() && configOf().approval) {
+        const detail = req.reason !== undefined && req.reason !== ''
+          ? `${req.toolName} · ${req.reason}`
+          : req.toolName
+        systemNotify('需要审批', summaryOf(detail, 80), sessionOpenUrl(req.agent.id))
+      }
+    } catch { /* 通知是增益不是依赖：观察失败不阻断审批链 */ }
     return next()
   }, { global: true })
   // 错误：受总开关 + error 子开关控制，同一会话 30s 内只发一条避免刷屏。
@@ -235,6 +250,7 @@ export function applySystemNotify(
   const ERROR_DEDUP_MS = 30_000
   const lastErrorAt = new Map<string, number>()
   ctx.on('agent/error', (payload) => {
+    if (isSubagent(payload.agent)) return
     if (!enabled() || !configOf().error) return
     const now = Date.now()
     // 顺带清理早已过期的旧条目（≤30s 窗口外的记录不再有去重价值）。
@@ -250,6 +266,7 @@ export function applySystemNotify(
   }, { global: true })
   // 会话完成：agent 被销毁即视为会话结束（与轮次完成区分开）。
   ctx.on('agent/disposed', (payload) => {
+    if (isSubagent(payload.agent)) return
     if (!enabled() || !configOf().sessionDone) return
     systemNotify('会话完成', '该会话已完成，可以切回查看', sessionOpenUrl(payload.agent.id))
   }, { global: true })
