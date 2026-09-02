@@ -44,12 +44,14 @@ export interface NotifyConfig {
 /** 当前宿主平台（spawn 前分派，避免在不适用的平台上尝试不存在的二进制）。 */
 const PLATFORM: NodeJS.Platform = process.platform
 
-/** AppleScript 单行脚本：负载经 `--` argv 传入（on run argv）。 */
-const OSASCRIPT_NOTIFY = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv) sound name "Glass"\nend run'
+/** AppleScript 单行脚本：负载经 `--` argv 传入（on run argv）。
+ *  导出仅供注入不变量测试（test/system-notify.test.mjs）钉住
+ *  「负载走 argv、脚本体零插值」约束。 */
+export const OSASCRIPT_NOTIFY = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv) sound name "Glass"\nend run'
 /** sound 关闭时的变体：不带 sound name 子句 → 跟随系统默认提示音。
  *  macOS 侧 terminal-notifier / osascript 都拿不到真静音（无 "none" 取值），
  *  故本开关的语义是「Glass 内置音」与「系统默认音」之差，不是静音。 */
-const OSASCRIPT_NOTIFY_DEFAULT_SOUND = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run'
+export const OSASCRIPT_NOTIFY_DEFAULT_SOUND = 'on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run'
 
 /**
  * Windows toast 脚本（-File 执行，纯静态）：负载经命名参数（argv）进入，
@@ -57,8 +59,9 @@ const OSASCRIPT_NOTIFY_DEFAULT_SOUND = 'on run argv\ndisplay notification (item 
  * AUMID 借用 Windows PowerShell 的已注册身份展示 toast（无需额外安装）。
  * 末尾自删除脚本文件；脚本体里的 `$Title/$Body/$OpenUrl/$xml` 等均为
  * PowerShell 变量，与 JS 插值无关（本源码没有任何 `${...}` 拼入用户数据）。
+ * 导出仅供注入不变量测试钉住「脚本体零 JS 插值」约束。
  */
-const POWERSHELL_TOAST_PS1 = [
+export const POWERSHELL_TOAST_PS1 = [
   'param([string]$Title, [string]$Body, [string]$OpenUrl)',
   'Add-Type -AssemblyName System.Runtime.WindowsRuntime',
   '$null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]',
@@ -81,23 +84,23 @@ const POWERSHELL_TOAST_PS1 = [
  * macOS 上 detached 让通知进程在宿主退出后仍可存活；Windows 上
  * windowsHide 避免闪出控制台窗口。
  */
-function spawnNotifierSilicon(args: readonly string[]): void {
+function spawnNotifierSilicon(args: readonly string[], onExecError?: () => void): void {
   try {
     const child = spawn('/opt/homebrew/bin/terminal-notifier', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
-    child.on('error', () => {})
+    child.on('error', () => onExecError?.()) // exec 失败（存在但不可执行）→ 兜底通道
     child.unref()
   } catch {
-    // 同步失败（参数非法等）同样静默。
+    onExecError?.() // 同步失败（参数非法等）→ 兜底通道
   }
 }
 
-function spawnNotifierIntel(args: readonly string[]): void {
+function spawnNotifierIntel(args: readonly string[], onExecError?: () => void): void {
   try {
     const child = spawn('/usr/local/bin/terminal-notifier', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
-    child.on('error', () => {})
+    child.on('error', () => onExecError?.()) // exec 失败（存在但不可执行）→ 兜底通道
     child.unref()
   } catch {
-    // 同步失败（参数非法等）同样静默。
+    onExecError?.() // 同步失败（参数非法等）→ 兜底通道
   }
 }
 
@@ -133,6 +136,11 @@ let notifierPath: string | null | undefined = undefined
  * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。 */
 function notifyMac(title: string, body: string, openUrl: string | undefined, sound: boolean): void {
   const soundArgs = sound ? ['-sound', 'Glass'] : []
+  // osascript 兜底：terminal-notifier 缺失（探测为 null）或存在但执行失败
+  // （existsSync 只证明文件在，quarantine/权限/损坏安装会让 exec 报 error）
+  // 都必须仍有通知可见，只是退化为不可点击。
+  const osascriptFallback = (): void =>
+    spawnOsascript(['-e', sound ? OSASCRIPT_NOTIFY : OSASCRIPT_NOTIFY_DEFAULT_SOUND, '--', title, body])
   if (openUrl !== undefined && openUrl !== '') {
     // 候选路径逐个判断（仅首次）：spawn 的 command 恒为字面量。
     if (notifierPath === undefined) {
@@ -145,15 +153,15 @@ function notifyMac(title: string, body: string, openUrl: string | undefined, sou
       }
     }
     if (notifierPath === '/opt/homebrew/bin/terminal-notifier') {
-      spawnNotifierSilicon(['-message', body, '-title', title, '-open', openUrl, ...soundArgs])
+      spawnNotifierSilicon(['-message', body, '-title', title, '-open', openUrl, ...soundArgs], osascriptFallback)
       return
     }
     if (notifierPath === '/usr/local/bin/terminal-notifier') {
-      spawnNotifierIntel(['-message', body, '-title', title, '-open', openUrl, ...soundArgs])
+      spawnNotifierIntel(['-message', body, '-title', title, '-open', openUrl, ...soundArgs], osascriptFallback)
       return
     }
   }
-  spawnOsascript(['-e', sound ? OSASCRIPT_NOTIFY : OSASCRIPT_NOTIFY_DEFAULT_SOUND, '--', title, body])
+  osascriptFallback()
 }
 
 /**
