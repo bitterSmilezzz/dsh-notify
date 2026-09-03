@@ -38,7 +38,7 @@ export function NotifySettingsCard({ t }: { t: LocaleT }) {
 
   // 外部改配置时同步重渲染；写 host 失败时提示。
   react.useEffect(() => {
-    const onConfig = () => force()
+    const onConfig = () => { force(); setSaveFailed(false) }
     const onError = () => setSaveFailed(true)
     window.addEventListener('dsh-notify:config', onConfig)
     window.addEventListener('dsh-notify:config-error', onError)
@@ -73,7 +73,7 @@ export function NotifySettingsCard({ t }: { t: LocaleT }) {
       </button>
       {open ? (
         <div className="dshn-body">
-          {saveFailed ? <p className="dshn-status dshn-err" role="alert">{t('notifyTitle')}</p> : null}
+          {saveFailed ? <p className="dshn-status dshn-err" role="alert">{t('notifySaveFailed')}</p> : null}
           <div className="dshn-group">
             <p className="dshn-groupTitle">{t('groupNotify')}</p>
             <ToggleRow

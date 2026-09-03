@@ -20,6 +20,7 @@ export const zh = {
   notifyPermTitle: '通知权限',
   notifyPermDesc: '若收不到系统通知，请在系统设置中允许「终端」/宿主 App 的通知',
   notifyPermOpen: '去系统设置开启',
+  notifySaveFailed: '通知设置保存失败——可能不会在重启后保留，请重试',
 }
 export const en = {
   masterTitle: 'Desktop notifications',
@@ -37,6 +38,7 @@ export const en = {
   notifyPermTitle: 'Notification permission',
   notifyPermDesc: 'If notifications don\'t appear, allow notifications for the Terminal / host app in System Settings',
   notifyPermOpen: 'Open System Settings',
+  notifySaveFailed: 'Failed to save notification settings — they may not persist after restart. Please retry.',
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
