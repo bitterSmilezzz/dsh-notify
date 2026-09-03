@@ -28,7 +28,8 @@ export declare const OSASCRIPT_NOTIFY_DEFAULT_SOUND = "on run argv\ndisplay noti
 export declare const POWERSHELL_TOAST_PS1: string;
 /**
  * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
- * 总开关与各事件开关。点击通知跳转浏览器对应会话（client 读 `?session=`）。
+ * 总开关与各事件开关。点击通知跳转浏览器对应会话（client 读 `#session=`，
+ * 兼容旧的 `?session=`）。
  * @param ctx - host context（含 settings 服务的 `notify` scope）。
  * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
  * @param baseUrl - 浏览器地址（默认 3080）。

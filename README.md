@@ -6,7 +6,7 @@ DeepSeek Harness (DSH) 的**系统级桌面通知（Desktop Notifications）**�
 
 - 四类事件分别开关：审批（approval/request）、轮次完成（agent idle）、会话完成（agent/disposed）、Agent 出错（agent/error，同会话 30s 去重）
 - 总开关 + 声音开关；通知音效为 Web Audio 合成（四类各不相同），设置卡片可试听
-- **点击跳转**：通知携带 `http://127.0.0.1:3080/?session=<id>`，client 半区 deep-link 自动打开对应会话
+- **点击跳转**：通知携带带进程 token 的地址 + `#session=<id>`（如 `http://127.0.0.1:3080/?token=...#session=<id>`），首次点击自动完成浏览器认证（无需手动打开启动 URL），client 半区 deep-link 自动打开对应会话；兼容旧 `?session=<id>` 形态
 - 按平台分派：macOS 用 terminal-notifier（可点击，缺失时 osascript 兜底仅展示）；Windows 用 PowerShell WinRT toast（Win10+ 自带，点击「查看会话」跳转）；其他平台静默跳过
 
 ## 安装

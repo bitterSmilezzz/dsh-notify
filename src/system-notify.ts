@@ -29,6 +29,9 @@ import type {} from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent';
 import type { Context } from '@deepseek-ai/cordis';
 import { isSubagent, summaryOf } from './notify-policy.ts'
+// Type-only: pulls the host Connection service merge (ctx.connection) for the
+// authenticated deep-link URL（带进程 token，首次点击无需手动种 cookie）。
+import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection';
 
 /** 通知开关（与 settings schema 的 notify 子对象一致）。 */
 export interface NotifyConfig {
@@ -210,7 +213,8 @@ function systemNotify(title: string, body: string, openUrl: string | undefined, 
 
 /**
  * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
- * 总开关与各事件开关。点击通知跳转浏览器对应会话（client 读 `?session=`）。
+ * 总开关与各事件开关。点击通知跳转浏览器对应会话（client 读 `#session=`，
+ * 兼容旧的 `?session=`）。
  * @param ctx - host context（含 settings 服务的 `notify` scope）。
  * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
  * @param baseUrl - 浏览器地址（默认 3080）。
@@ -220,8 +224,22 @@ export function applySystemNotify(
   configOf: () => NotifyConfig,
   baseUrl: string | (() => string) = 'http://127.0.0.1:3080',
 ): void {
-  const sessionOpenUrl = (sessionId: string): string =>
-    `${typeof baseUrl === 'function' ? baseUrl() : baseUrl}/?session=${encodeURIComponent(sessionId)}`
+  const sessionOpenUrl = (sessionId: string): string => {
+    const base = typeof baseUrl === 'function' ? baseUrl() : baseUrl
+    // rc.1 起 web 界面默认启用进程 token 鉴权（本机 127.0.0.1 同样 401）：
+    // 直接打开 `/?session=` 在浏览器无 cookie 时会撞认证墙。这里用官方
+    // authenticatedUrl 带上进程 token，session 改走 `#` fragment——token 交换
+    // 的 303 重定向会保留 fragment（RFC 7231 §7.1.2），client 读 hash 即可
+    // 完成「首次认证 + 会话跳转」二合一；已认证浏览器直接命中同一 fragment。
+    // connection 服务缺失时降级为旧的无 token URL（行为与以前一致）。
+    const connection = (ctx as Context & { connection?: HostConnectionHandle }).connection
+    try {
+      const authenticated = connection?.authenticatedUrl(base) ?? base
+      return `${authenticated}#session=${encodeURIComponent(sessionId)}`
+    } catch {
+      return `${base}/?session=${encodeURIComponent(sessionId)}`
+    }
+  }
   const enabled = (): boolean => configOf().enabled
   /** 通知是增益不是依赖：任何处理器内的异常都不允许冒泡进事件总线。 */
   const safe = (run: () => void): void => {
