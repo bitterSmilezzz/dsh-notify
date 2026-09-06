@@ -17,19 +17,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 /** 插件配置页的 settings namespace：注册后出现在「设置 → 插件 → 配置」分派列表。 */
 export declare const NOTIFY_SETTINGS_NAMESPACE = "notify";
-/** Host context slice this plugin consumes. */
-type NotifyHostContext = Context & {
-    settings: {
-        register<T>(ns: unknown, schema: unknown, options?: {
-            base?: unknown;
-            validate?: unknown;
-        }): {
-            get(): T;
-        };
-    };
-};
 export declare const name = "dsh-notify";
 export declare const inject: string[];
-export declare function apply(ctx: NotifyHostContext, _config?: Record<string, never>): void;
-export {};
+export declare function apply(ctx: Context, _config?: Record<string, never>): void;
 //# sourceMappingURL=index.d.ts.map

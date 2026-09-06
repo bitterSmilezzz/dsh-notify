@@ -28,7 +28,6 @@ const NS = 'notify'
 export const inject = [
   'slots',
   'locale',
-  'sessions',
   'settingsScope',
 ]
 

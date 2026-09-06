@@ -44,12 +44,22 @@ test('summaryOf: 按码点截断，不劈开代理对（emoji）', () => {
   assert.ok(!out.includes('\uFFFD'), '不得出现替换符 �（孤立代理的典型渲染）')
 })
 
-test('summaryOf: 组合字符（基字符+变音符）截断时不劈开基字符与变音符对', () => {
+test('summaryOf: 组合字符（基字符+变音符）偶数边界保留完整组合对（按码点截断）', () => {
   // "a\u0301"（á 的组合形式）是两个码点；max=5 时按码点保留前 4 个
-  // （a á a á），输出必须原样保留完整组合序列，最后补省略号共 5 个码点。
+  // （a á a á），边界恰落在组合对之间，输出原样保留完整组合序列，
+  // 最后补省略号共 5 个码点。
   const out = summaryOf('a\u0301'.repeat(20), 5)
   assert.equal(out, 'a\u0301a\u0301…')
   assert.equal([...out].length, 5)
+})
+
+test('summaryOf: 奇数边界会劈开基字符与变音符（按码点截断的边界语义）', () => {
+  // max=4 时保留前 3 个码点（a á a），第二个 á 的变音符落在边界外被截掉。
+  // 这是「按码点截断」的既有契约而非缺陷：截断只影响尾部展示，不影响
+  // 可读性判定（通知正文限长是展示性约束）。
+  const out = summaryOf('a\u0301'.repeat(20), 4)
+  assert.equal(out, 'a\u0301a…')
+  assert.equal([...out].length, 4)
 })
 
 test('pruneExpired: 窗口内的条目保留，过期的删除', () => {

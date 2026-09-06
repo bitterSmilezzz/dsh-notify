@@ -17,6 +17,10 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-agent';
 import type {} from '@deepseek-ai/dsh-user-approval';
+// Type-only: pulls the dsh-settings Context merge (ctx.settings) — 官方
+// SettingsProvider 类型，register 返回 SettingsScope<T>，get() 直接给
+// schema 推断类型，不再需要手写 NotifyHostContext。
+import type {} from '@deepseek-ai/dsh-settings';
 import z from '@deepseek-ai/schemastery';
 import { applySystemNotify, systemNotify, type NotifyConfig } from './system-notify.ts';
 import type { ProbeState } from './notify-policy.ts';
@@ -24,20 +28,13 @@ import type { ProbeState } from './notify-policy.ts';
 /** 插件配置页的 settings namespace：注册后出现在「设置 → 插件 → 配置」分派列表。 */
 export const NOTIFY_SETTINGS_NAMESPACE = 'notify'
 
-/** Host context slice this plugin consumes. */
-type NotifyHostContext = Context & {
-  settings: {
-    register<T>(ns: unknown, schema: unknown, options?: { base?: unknown; validate?: unknown }): { get(): T };
-  };
-}
-
 export const name = 'dsh-notify'
 
 export const inject = [
   'settings',
 ]
 
-export function apply(ctx: NotifyHostContext, _config: Record<string, never> = {}): void {
+export function apply(ctx: Context, _config: Record<string, never> = {}): void {
   // 插件配置 namespace：client 设置卡片与 host 通知逻辑共享同一份配置。
   const notifyScope = ctx.settings.register(NOTIFY_SETTINGS_NAMESPACE, z.object({
     enabled: z.boolean().default(true),
@@ -51,20 +48,18 @@ export function apply(ctx: NotifyHostContext, _config: Record<string, never> = {
   }))
 
   // 系统级桌面通知：监听 Cordis 事件，读 settings 配置判断开关。
+  // scope.get() 为 schema 推断类型（字段全部带 default，恒为完整形态）。
   const notifyConfig = (): NotifyConfig => {
-    const value = notifyScope.get() as unknown as {
-      enabled?: boolean; approval?: boolean; turn?: boolean; sessionDone?: boolean;
-      error?: boolean; sound?: boolean; overlap?: 'auto' | 'mine'; probeServices?: string[]
-    }
+    const value = notifyScope.get()
     return {
-      enabled: value.enabled ?? true,
-      approval: value.approval ?? true,
-      turn: value.turn ?? true,
-      sessionDone: value.sessionDone ?? true,
-      error: value.error ?? true,
-      sound: value.sound ?? true,
-      overlap: value.overlap ?? 'auto',
-      probeServices: value.probeServices ?? [],
+      enabled: value.enabled,
+      approval: value.approval,
+      turn: value.turn,
+      sessionDone: value.sessionDone,
+      error: value.error,
+      sound: value.sound,
+      overlap: value.overlap,
+      probeServices: value.probeServices,
     }
   }
   // 暂停/恢复提示：仅在探测状态翻转时发一次（首次探测不发）。

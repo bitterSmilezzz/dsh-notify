@@ -9,7 +9,8 @@
  * 而非轮询，带超时上限防止无效 id 无限等待。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only: pulls the session controller Context merge (ctx.sessions) in alpha.2.
+// Type-only: keeps the session controller in the type graph (the sessions
+// service this module reads via ctx.get, not a hard inject).
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 
 /** deep-link 等待会话出现的最大时长（毫秒）。 */
@@ -55,9 +56,10 @@ export function applySessionDeepLink(ctx: ClientContext): void {
   ctx.effect(() => {
     const sessionId = sessionIdFromLocation(window.location.search, window.location.hash)
     if (sessionId === null) return () => {}
-    const sessions = ctx.sessions as unknown as SessionsLinkLike
-    // sessions 服务运行期可能缺失（注入声明了但宿主没挂上）——防御性退出，
-    // 不清理 URL：服务恢复后下次加载仍有机会跳转。
+    // sessions 是可选依赖：不 declare inject（设置卡片等核心功能不依赖会话
+    // 控制器，硬注入会让整个 client 半区等它就绪），运行期经 ctx.get 读取。
+    // 缺失/未挂载时防御性退出，不清理 URL：服务恢复后下次加载仍有机会跳转。
+    const sessions = ctx.get('sessions') as unknown as SessionsLinkLike | undefined
     if (typeof sessions?.open !== 'function' || typeof sessions?.list?.subscribe !== 'function' || typeof sessions?.list?.getSnapshot !== 'function') {
       return () => {}
     }
@@ -75,19 +77,32 @@ export function applySessionDeepLink(ctx: ClientContext): void {
       openAndClear()
       return () => {}
     }
+    // 先声明后赋值：subscribe 同步抛错时 unsub 停在未初始化（TDZ），timer
+    // 回调若直接访问会 ReferenceError；用可选链/守卫消除（见 timer 回调）。
+    let unsub: (() => void) | undefined
     const timer = window.setTimeout(() => {
+      // 防御：subscribe 同步抛错 → unsub 未赋值，放弃等待且不清理 URL
+      //（URL 保留，刷新可重试；与 sessions 缺失时的行为一致）。
+      if (unsub === undefined) return
       unsub()
       clearSessionParam()
     }, LINK_TIMEOUT_MS)
-    const unsub = sessions.list.subscribe(() => {
-      if (sessions.list.getSnapshot().byId?.[sessionId] === undefined) return
+    try {
+      unsub = sessions.list.subscribe(() => {
+        if (sessions.list.getSnapshot().byId?.[sessionId] === undefined) return
+        clearTimeout(timer)
+        unsub?.()
+        openAndClear()
+      })
+    } catch {
+      // subscribe 同步抛错：观察链建立失败，立即放弃（不再空等 timer），
+      // 不抛给 fiber——通知/深链是增益不是依赖。
       clearTimeout(timer)
-      unsub()
-      openAndClear()
-    })
+      return () => {}
+    }
     return () => {
       clearTimeout(timer)
-      unsub()
+      if (unsub !== undefined) unsub()
     }
   }, 'dsh-notify: session deep-link')
 }
