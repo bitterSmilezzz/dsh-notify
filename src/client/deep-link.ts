@@ -33,11 +33,17 @@ export function sessionIdFromLocation(search: string, hash: string): string | nu
   return fromQuery !== null && fromQuery !== '' ? fromQuery : null
 }
 
-/** 清除 deep-link 痕迹（fragment 与查询参数），避免刷新重复跳转。 */
+/** 清除 deep-link 痕迹（fragment 与查询参数），避免刷新重复跳转。
+ *  hash 用 URLSearchParams 解析而非 startsWith 前缀判断：`#session=` 可能
+ *  不在 hash 首位（如 `#foo=1&session=abc`），前缀判断会漏清导致刷新重复跳转。 */
 export function clearSessionParam(): void {
   const url = new URL(window.location.href)
   url.searchParams.delete('session')
-  if (url.hash.startsWith('#session=')) url.hash = ''
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/u, ''))
+  if (hashParams.has('session')) {
+    hashParams.delete('session')
+    url.hash = hashParams.size > 0 ? `#${hashParams.toString()}` : ''
+  }
   window.history.replaceState({}, '', url)
 }
 
@@ -50,11 +56,23 @@ export function applySessionDeepLink(ctx: ClientContext): void {
     const sessionId = sessionIdFromLocation(window.location.search, window.location.hash)
     if (sessionId === null) return () => {}
     const sessions = ctx.sessions as unknown as SessionsLinkLike
-
-    // 会话已就绪则立即打开；否则订阅列表，命中即开，超时放弃。
-    if (sessions.list.getSnapshot().byId[sessionId] !== undefined) {
-      sessions.open(sessionId)
+    // sessions 服务运行期可能缺失（注入声明了但宿主没挂上）——防御性退出，
+    // 不清理 URL：服务恢复后下次加载仍有机会跳转。
+    if (typeof sessions?.open !== 'function' || typeof sessions?.list?.subscribe !== 'function' || typeof sessions?.list?.getSnapshot !== 'function') {
+      return () => {}
+    }
+    /** 打开会话并清除 deep-link 痕迹。open 失败（会话已销毁等）也清：URL 残留会导致每次刷新重复空等。 */
+    const openAndClear = (): void => {
+      try {
+        sessions.open(sessionId)
+      } catch {
+        /* 打开失败：静默降级，痕迹照常清除 */
+      }
       clearSessionParam()
+    }
+    // 会话已就绪则立即打开；否则订阅列表，命中即开，超时放弃。
+    if (sessions.list.getSnapshot().byId?.[sessionId] !== undefined) {
+      openAndClear()
       return () => {}
     }
     const timer = window.setTimeout(() => {
@@ -62,11 +80,10 @@ export function applySessionDeepLink(ctx: ClientContext): void {
       clearSessionParam()
     }, LINK_TIMEOUT_MS)
     const unsub = sessions.list.subscribe(() => {
-      if (sessions.list.getSnapshot().byId[sessionId] === undefined) return
+      if (sessions.list.getSnapshot().byId?.[sessionId] === undefined) return
       clearTimeout(timer)
       unsub()
-      sessions.open(sessionId)
-      clearSessionParam()
+      openAndClear()
     })
     return () => {
       clearTimeout(timer)

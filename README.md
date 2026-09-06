@@ -17,12 +17,12 @@ dsh plugin --profile <profile> add github:bitterSmilezzz/dsh-notify
 dsh plugin --profile <profile> add <path-to-repo>
 ```
 
-启用后通知开关在 **「设置 → 插件 → 配置」→ 桌面通知** 卡片（settings namespace `notify`），重启 web profile 生效。
+启用后通知开关在 **「设置 → 插件 → 配置」→ 桌面通知** 卡片（settings namespace `notify`）。**安装/升级插件后需重启 web profile 生效；开关调整即时生效，无需重启。**
 
 ## 外部依赖
 
 - macOS：可选 `terminal-notifier`（`/opt/homebrew/bin/` 或 `/usr/local/bin/`，仅有点击跳转需要；缺失自动降级 osascript 仅展示）
-- Windows：PowerShell 5+（Win10/11 自带，无第三方依赖）
+- Windows：PowerShell 5+（Win10/11 自带，无第三方依赖）；临时 .ps1 脚本自身 finally 自删，另有两层兜底（JS 30s 定时器 + 启动/写入前清扫陈旧残留），宿主崩溃也不残留堆积
 - 通知走系统级（terminal-notifier / osascript / WinRT toast），不经浏览器 Notification API
 - 生命周期脚本：**无**（无 preinstall/install/postinstall/prepare）
 

@@ -6,7 +6,11 @@
  *
  * 配置契约：host settings namespace `notify` 为权威源（client 设置卡片与
  * host 通知逻辑共享同一配置）：
- *   - notify: { enabled, approval, turn, sessionDone, error, sound }
+ *   - notify: { enabled, approval, turn, sessionDone, error, sound, overlap, probeServices }
+ *
+ * 防重叠：`overlap: 'auto'`（默认）下探测其他通知源（官方/生态），命中即
+ * 自动跳过自身通知；探测状态经只读 service `notifyProbe` 暴露给 client
+ * 设置卡片展示，变化边界发一次系统提示。
  *
  * inject 为最小集：settings（注册 namespace + 读取通知开关）。
  */

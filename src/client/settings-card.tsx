@@ -11,20 +11,30 @@ import { config, setConfig } from './config.ts'
 import { playSound } from './sound.ts'
 import type { LocaleT } from './locale.ts'
 
-/** 一个开关行。 */
+/** 一个开关行。label 包住整行：点击行内任意处（标题/描述/空白）都可切换，
+ *  而不是只点 checkbox 那一小块；Tab 焦点落在 input 上，Enter/Space 切换。 */
 function ToggleRow({ title, desc, checked, onChange }: { title: string; desc?: string; checked: boolean; onChange: () => void }) {
   return (
-    <div className="dshn-row">
-      <div className="dshn-rowText">
+    <label className="dshn-row">
+      <span className="dshn-rowText">
         <span className="dshn-rowTitle">{title}</span>
-        {desc ? <p className="dshn-rowDesc">{desc}</p> : null}
-      </div>
-      <label className="dshn-field">
-        <input type="checkbox" checked={checked} onChange={onChange} />
-      </label>
-    </div>
+        {desc ? <span className="dshn-rowDesc">{desc}</span> : null}
+      </span>
+      <span className="dshn-field">
+        {/* role="switch" 让读屏按「开关」语义播报（on/off），与行内视觉一致；
+            原生 checkbox 的隐式 role 是 checkbox，显式 role 覆盖后读屏读
+            aria-checked。aria-checked 与 checked 绑定同一 prop 同源显式同步：
+            任何状态变化（点击/键盘切换）都会经 setConfig → 重渲染同时更新
+            两者，读屏播报与视觉勾选不会分叉。 */}
+        <input type="checkbox" role="switch" aria-label={title} aria-checked={checked} checked={checked} onChange={onChange} />
+      </span>
+    </label>
   )
 }
+
+/** 宿主是否为 macOS（用于「去系统设置开启」入口的可见性判断：
+ *  x-apple.systempreferences 深链只在 macOS 有效，Windows/Linux 展示了也无用）。 */
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent)
 
 /**
  * 通知设置卡片主体。
@@ -105,37 +115,73 @@ export function NotifySettingsCard({ t }: { t: LocaleT }) {
             <div className="dshn-row">
               <div className="dshn-rowText">
                 <span className="dshn-rowTitle">{t('notifySound')}</span>
-                <p className="dshn-rowDesc">{t('notifySoundDesc')}</p>
+                <span className="dshn-rowDesc">{t('notifySoundDesc')}</span>
               </div>
               <div className="dshn-field">
                 <input
                   type="checkbox"
+                  role="switch"
+                  aria-label={t('notifySound')}
+                  aria-checked={config.sound}
                   checked={config.sound}
                   onChange={() => setConfig('sound', () => { config.sound = !config.sound })}
                 />
-                <button type="button" className="dshn-button" onClick={() => playSound('sessionDone')}>
+                <button type="button" className="dshn-button" onClick={() => playSound('sessionDone', true)}>
                   {t('notifyTest')}
                 </button>
               </div>
             </div>
-            <div className="dshn-row">
+            {/* 与其他通知源的冲突策略：auto=探测到即自动暂停（防双份），
+                mine=忽略探测始终用自己的。探测由 host 做，auto 暂停时会弹
+                系统提示告知用户（见 index.ts onProbeChange）。 */}
+            <div className="dshn-row dshn-overlapRow">
               <div className="dshn-rowText">
-                <span className="dshn-rowTitle">{t('notifyPermTitle')}</span>
-                <p className="dshn-rowDesc">{t('notifyPermDesc')}</p>
+                <span className="dshn-rowTitle">{t('overlapTitle')}</span>
+                <p className="dshn-rowDesc">{t('overlapDesc')}</p>
               </div>
-              <div className="dshn-field">
-                <button
-                  type="button"
-                  className="dshn-button"
-                  onClick={() => {
-                    // macOS：打开系统设置通知页（需用户手动开启 Terminal/宿主 App 的通知）。
-                    window.open('x-apple.systempreferences:com.apple.Notifications-Settings.extension', '_self')
-                  }}
-                >
-                  {t('notifyPermOpen')}
-                </button>
+              <div className="dshn-field dshn-overlap" role="radiogroup" aria-label={t('overlapTitle')}>
+                <label className="dshn-overlapItem">
+                  <input
+                    type="radio"
+                    name="dshn-overlap"
+                    value="auto"
+                    checked={config.overlap === 'auto'}
+                    onChange={() => setConfig('overlap', () => { config.overlap = 'auto' })}
+                  />
+                  <span>{t('overlapAuto')}</span>
+                </label>
+                <label className="dshn-overlapItem">
+                  <input
+                    type="radio"
+                    name="dshn-overlap"
+                    value="mine"
+                    checked={config.overlap === 'mine'}
+                    onChange={() => setConfig('overlap', () => { config.overlap = 'mine' })}
+                  />
+                  <span>{t('overlapMine')}</span>
+                </label>
               </div>
             </div>
+            {IS_MAC ? (
+              <div className="dshn-row">
+                <div className="dshn-rowText">
+                  <span className="dshn-rowTitle">{t('notifyPermTitle')}</span>
+                  <p className="dshn-rowDesc">{t('notifyPermDesc')}</p>
+                </div>
+                <div className="dshn-field">
+                  <button
+                    type="button"
+                    className="dshn-button"
+                    onClick={() => {
+                      // macOS：打开系统设置通知页（需用户手动开启 Terminal/宿主 App 的通知）。
+                      window.open('x-apple.systempreferences:com.apple.Notifications-Settings.extension', '_self')
+                    }}
+                  >
+                    {t('notifyPermOpen')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

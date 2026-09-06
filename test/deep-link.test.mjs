@@ -25,3 +25,13 @@ test('deep-link 解析：两者皆缺失或为空返回 null', () => {
   assert.equal(sessionIdFromLocation('?session=', '#session='), null)
   assert.equal(sessionIdFromLocation('?foo=bar', '#baz=qux'), null)
 })
+
+test('deep-link 解析：特殊字符经 URL 编码往返一致', () => {
+  // sessionId 可能含空格/加号/中文等，host 侧 encodeURIComponent 编码进 hash，
+  // URLSearchParams 解析时解码回原值——往返必须一致。
+  for (const id of ['a b', 'a+b', 'a&b', '中文会话', 'a#b', 'a/b?c=1']) {
+    const encoded = encodeURIComponent(id)
+    assert.equal(sessionIdFromLocation('', `#session=${encoded}`), id, id)
+    assert.equal(sessionIdFromLocation(`?session=${encoded}`, ''), id, id)
+  }
+})

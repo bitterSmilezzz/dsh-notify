@@ -48,7 +48,9 @@ export function mountSoundWarmup(): () => void {
       document.removeEventListener('keydown', warmAudio)
     }
     if (audioCtx !== null) {
-      try { void audioCtx.close() } catch { /* noop */ }
+      // close() 返回 Promise：rejection（如 close 竞态）不能冒泡成
+      // unhandledRejection；同步 throw 也被 try/catch 吞掉。
+      try { audioCtx.close().catch(() => { /* noop */ }) } catch { /* noop */ }
       audioCtx = null
     }
     audioReady = false
@@ -57,17 +59,27 @@ export function mountSoundWarmup(): () => void {
 
 function tone(freq: number, start: number, dur: number, type: OscillatorType = 'sine', gain = 0.16): void {
   if (audioCtx === null) return
+  // 边界防御：exponentialRampToValueAtTime 的到达时间必须晚于上一事件
+  // （t0+0.02），且指数斜坡的目标值必须为正数，否则 Web Audio 抛 RangeError。
+  // 调用方目前都是常量（≥0.16s / ≥0.10），clamp 兜住未来误传的极端值。
+  const safeDur = Math.max(dur, 0.05)
+  const safeGain = Math.max(gain, 0.0001)
   const t0 = audioCtx.currentTime + start
   const osc = audioCtx.createOscillator()
   const g = audioCtx.createGain()
   osc.type = type
   osc.frequency.value = freq
   g.gain.setValueAtTime(0.0001, t0)
-  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.02)
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  g.gain.exponentialRampToValueAtTime(safeGain, t0 + 0.02)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + safeDur)
   osc.connect(g).connect(audioCtx.destination)
   osc.start(t0)
-  osc.stop(t0 + dur + 0.05)
+  osc.stop(t0 + safeDur + 0.05)
+  // 播完断开节点：AudioNode 只要仍连接在图上就不会被 GC，长会话内多次
+  // 播放（如瀑布审批）会累积已结束的 osc/gain，显式 disconnect 释放。
+  osc.addEventListener('ended', () => {
+    try { g.disconnect() } catch { /* 已断开则忽略 */ }
+  }, { once: true })
 }
 
 const SOUND_PATTERNS: Record<SoundKind, () => void> = {
@@ -87,9 +99,11 @@ let lastPlayAt: Record<SoundKind, number> = {
   approval: 0, question: 0, turn: 0, sessionDone: 0,
 }
 
-/** 播放一类通知音效（受 config.sound 开关控制；同类 300ms 内去重）。 */
-export function playSound(kind: SoundKind): void {
-  if (!config.sound) return
+/** 播放一类通知音效（受 config.sound 开关控制；同类 300ms 内去重）。
+ *  force=true 时无视声音开关直接播放——设置卡片的「试听」走这个分支：
+ *  试听的目的就是让用户在关闭声音后仍能确认音效，不应被开关静默吞掉。 */
+export function playSound(kind: SoundKind, force = false): void {
+  if (!force && !config.sound) return
   const now = performance.now()
   if (now - lastPlayAt[kind] < SOUND_THROTTLE_MS) return
   lastPlayAt[kind] = now

@@ -30,4 +30,9 @@ export const CSS = `
 .dshn-button:disabled{opacity:.4;cursor:default}
 .dshn-status{font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-secondary)}
 .dshn-status.dshn-err{color:var(--dsw-alias-state-danger-fill,#F87171)}
+.dshn-overlapRow{flex-wrap:wrap}
+.dshn-overlap{flex-wrap:wrap;justify-content:flex-end}
+.dshn-overlapItem{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:18px;cursor:pointer}
+.dshn-overlapItem:has(input:checked){border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent)}
+.dshn-overlapItem input[type=radio]{margin:0;accent-color:var(--dsw-alias-brand-primary)}
 `
