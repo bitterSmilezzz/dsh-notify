@@ -2,8 +2,8 @@
  * dsh-notify — system-level desktop notifications (host side).
  *
  * 监听 Cordis 事件发系统通知，按平台分派：
- *   - macOS:   terminal-notifier（-open 点击跳转浏览器对应会话），缺失时
- *             osascript 兜底（不可点击，仅显示）
+ *   - macOS:   terminal-notifier（-open 点击跳转浏览器对应会话），缺失或
+ *             运行失败时 osascript 兜底（不可点击，仅显示）
  *   - Windows: PowerShell WinRT toast（点击「查看会话」跳转，无 openUrl 时仅展示）
  *   - 其他平台: 静默跳过（桌面通知没有通用入口，增益不是依赖）
  *
@@ -50,6 +50,8 @@ export interface NotifyConfig {
    *   - 'mine'：忽略探测结果，始终用自己的（主动双开，自负重复风险）。
    */
   overlap: 'auto' | 'mine'
+  /** 追加的候选探测 service 名（settings probeServices；每次探测时随 configOf() 读取，改配置即时生效）。 */
+  probeServices: readonly string[]
 }
 
 /** 当前宿主平台（spawn 前分派，避免在不适用的平台上尝试不存在的二进制）。 */
@@ -105,29 +107,51 @@ export const POWERSHELL_TOAST_PS1 = [
 ].join('\n')
 
 /**
+ * 注册 terminal-notifier 失败兜底：exec 失败（error 事件）、运行期失败
+ * （exit 非 0）都可能先后到达，防双发标志位保证合计只兜底一次（否则
+ * exit+error 双触发会重复弹 osascript 通知）。exit code 0 视为已成功发送，
+ * 不兜底；被信号杀死（code null）同样视为未发送。导出仅供测试注入假 child
+ * 验证「exit 非 0 → 兜底 + 防双发」（test/system-notify-fallback.test.mjs）。
+ */
+export function registerNotifierFallback(child: ChildProcess, onFallback?: () => void): void {
+  let fellBack = false
+  const fallbackOnce = (): void => {
+    if (fellBack) return
+    fellBack = true
+    onFallback?.()
+  }
+  child.on('error', fallbackOnce) // exec 失败（存在但不可执行）→ 兜底通道
+  child.on('exit', (code) => {
+    // macOS 26 起 NSUserNotification 点击 API 失效，terminal-notifier 存在
+    // 也会以非 0 退出：通知未成功发送 → 兜底通道（退化不可点击，仍有可见）。
+    if (code !== 0) fallbackOnce()
+  })
+}
+
+/**
  * 后台启动一个子进程，失败全程静默。每个 spawn 调用点的 command 都是
  * 字符串字面量（注入约束），所以一个命令一个薄封装；异步 'error' 必须被
  * 消费（否则 Node 以 unhandled 'error' 崩溃宿主），同步 throw 也吞掉。
  * macOS 上 detached 让通知进程在宿主退出后仍可存活；Windows 上
  * windowsHide 避免闪出控制台窗口。
  */
-function spawnNotifierSilicon(args: readonly string[], onExecError?: () => void): void {
+function spawnNotifierSilicon(args: readonly string[], onFallback?: () => void): void {
   try {
     const child = spawn('/opt/homebrew/bin/terminal-notifier', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
-    child.on('error', () => onExecError?.()) // exec 失败（存在但不可执行）→ 兜底通道
+    registerNotifierFallback(child, onFallback)
     child.unref()
   } catch {
-    onExecError?.() // 同步失败（参数非法等）→ 兜底通道
+    onFallback?.() // 同步失败（参数非法等）→ 兜底通道（无 child，无双发风险）
   }
 }
 
-function spawnNotifierIntel(args: readonly string[], onExecError?: () => void): void {
+function spawnNotifierIntel(args: readonly string[], onFallback?: () => void): void {
   try {
     const child = spawn('/usr/local/bin/terminal-notifier', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
-    child.on('error', () => onExecError?.()) // exec 失败（存在但不可执行）→ 兜底通道
+    registerNotifierFallback(child, onFallback)
     child.unref()
   } catch {
-    onExecError?.() // 同步失败（参数非法等）→ 兜底通道
+    onFallback?.() // 同步失败（参数非法等）→ 兜底通道（无 child，无双发风险）
   }
 }
 
@@ -240,12 +264,14 @@ function detectNotifierPath(): string | null {
 
 /** macOS 通知：osascript 为主（稳定可靠，带系统声音）。terminal-notifier
  * 的点击跳转依赖已废弃的 NSUserNotification 私有图标 API（macOS 26 失效），
- * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。 */
-function notifyMac(title: string, body: string, openUrl: string | undefined, sound: boolean): void {
+ * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。
+ * 导出仅供测试注入 node:child_process/node:fs 后验证兜底链（test/）。 */
+export function notifyMac(title: string, body: string, openUrl: string | undefined, sound: boolean): void {
   const soundArgs = sound ? ['-sound', 'Glass'] : []
-  // osascript 兜底：terminal-notifier 缺失（探测为 null）或存在但执行失败
+  // osascript 兜底：terminal-notifier 缺失（探测为 null）、存在但执行失败
   // （existsSync 只证明文件在，quarantine/权限/损坏安装会让 exec 报 error）
-  // 都必须仍有通知可见，只是退化为不可点击。
+  // 或运行期失败（macOS 26 起点击 API 失效，exit 非 0）都必须仍有通知可见，
+  // 只是退化为不可点击；exit+error 双触发只兜底一次（见 registerNotifierFallback）。
   const osascriptFallback = (): void =>
     spawnOsascript(['-e', sound ? OSASCRIPT_NOTIFY : OSASCRIPT_NOTIFY_DEFAULT_SOUND, '--', title, body])
   if (openUrl !== undefined && openUrl !== '') {
@@ -334,20 +360,19 @@ export function systemNotify(title: string, body: string, openUrl: string | unde
  * 防重叠（auto 策略）：监听器在 apply 时注册、随 fiber 卸载；每条事件进来
  * 先经 shouldNotify() 判定（配置 + 探测），auto 且探测到其他通知源即跳过
  * 自身通知——对用户可观察行为等价于动态注销，且事件低频、无性能顾虑。
- * 探测状态变化（false↔true）经 onProbeChange 回抛，由组合器更新只读
- * service 与提示用户。探测失败静默（通知是增益不是依赖）。
+ * 探测状态变化（false↔true）经 onProbeChange 回抛，由组合器发自动暂停/
+ * 恢复的系统提示。探测失败静默（通知是增益不是依赖）。
  *
  * @param ctx - host context（含 settings 服务的 `notify` scope）。
- * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
+ * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照；
+ *                   追加探测候选 probeServices 也在这里，每次探测读取）。
  * @param baseUrl - 浏览器地址（默认 3080）。
- * @param probeServices - 追加的候选探测 service 名（settings probeServices）。
  * @param onProbeChange - 探测状态变化回调（含首次探测）。
  */
 export function applySystemNotify(
   ctx: Context,
   configOf: () => NotifyConfig,
   baseUrl: string | (() => string) = 'http://127.0.0.1:3080',
-  probeServices?: readonly string[],
   onProbeChange?: (state: ProbeState) => void,
 ): void {
   // 防重叠探测：惰性 + 状态缓存。lastProbe 记录最近结果，变化时回抛一次。
@@ -355,7 +380,7 @@ export function applySystemNotify(
   // safe 定义被首次调用，不能依赖后者）。
   let lastProbe: ProbeState = { official: false }
   const probeNow = (): ProbeState => {
-    const state = probeOfficialNotify(ctx as unknown as { get(name: string): unknown }, probeServices)
+    const state = probeOfficialNotify(ctx as unknown as { get(name: string): unknown }, configOf().probeServices)
     if (state.official !== lastProbe.official || state.source !== lastProbe.source) {
       lastProbe = state
       try { onProbeChange?.(state) } catch { /* 观察失败静默 */ }
@@ -370,7 +395,8 @@ export function applySystemNotify(
     return !probeNow().official
   }
   // 首次探测：初始化状态（onProbeChange 首次回抛，让组合器尽早拿到状态）。
-  probeNow()
+  // configOf 读取失败（scope 未就绪等）静默——通知是增益不是依赖。
+  try { probeNow() } catch { /* 配置读取失败静默 */ }
   const sessionOpenUrl = (sessionId: string): string => {
     const base = typeof baseUrl === 'function' ? baseUrl() : baseUrl
     // rc.1 起 web 界面默认启用进程 token 鉴权（本机 127.0.0.1 同样 401）：

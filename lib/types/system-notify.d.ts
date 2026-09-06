@@ -1,3 +1,4 @@
+import { type ChildProcess } from 'node:child_process';
 import type { Context } from '@deepseek-ai/cordis';
 import { type ProbeState } from './notify-policy.ts';
 /** 通知开关（与 settings schema 的 notify 子对象一致）。 */
@@ -15,6 +16,8 @@ export interface NotifyConfig {
      *   - 'mine'：忽略探测结果，始终用自己的（主动双开，自负重复风险）。
      */
     overlap: 'auto' | 'mine';
+    /** 追加的候选探测 service 名（settings probeServices；每次探测时随 configOf() 读取，改配置即时生效）。 */
+    probeServices: readonly string[];
 }
 /** AppleScript 单行脚本：负载经 `--` argv 传入（on run argv）。
  *  导出仅供注入不变量测试（test/system-notify.test.mjs）钉住
@@ -33,6 +36,14 @@ export declare const OSASCRIPT_NOTIFY_DEFAULT_SOUND = "on run argv\ndisplay noti
  * 导出仅供注入不变量测试钉住「脚本体零 JS 插值」约束。
  */
 export declare const POWERSHELL_TOAST_PS1: string;
+/**
+ * 注册 terminal-notifier 失败兜底：exec 失败（error 事件）、运行期失败
+ * （exit 非 0）都可能先后到达，防双发标志位保证合计只兜底一次（否则
+ * exit+error 双触发会重复弹 osascript 通知）。exit code 0 视为已成功发送，
+ * 不兜底；被信号杀死（code null）同样视为未发送。导出仅供测试注入假 child
+ * 验证「exit 非 0 → 兜底 + 防双发」（test/system-notify-fallback.test.mjs）。
+ */
+export declare function registerNotifierFallback(child: ChildProcess, onFallback?: () => void): void;
 /**
  * 清扫 tmpdir 里陈旧的 `dsh-notify-*.ps1` 残留。主清理路径是脚本自身
  * finally 自删 + JS 30s 定时器，但它们都在宿主进程存活时才能生效；宿主
@@ -63,6 +74,11 @@ export declare function pruneStalePs1Scripts(dir?: string, now?: number, staleMs
  * 导出仅供测试钉住「`-` 前缀值加空格前缀」这一约束。
  */
 export declare function psNamedArgs(title: string, body: string, openUrl?: string): string[];
+/** macOS 通知：osascript 为主（稳定可靠，带系统声音）。terminal-notifier
+ * 的点击跳转依赖已废弃的 NSUserNotification 私有图标 API（macOS 26 失效），
+ * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。
+ * 导出仅供测试注入 node:child_process/node:fs 后验证兜底链（test/）。 */
+export declare function notifyMac(title: string, body: string, openUrl: string | undefined, sound: boolean): void;
 /**
  * 发一条系统通知。fire-and-forget：所有失败静默，不影响主流程。
  * 导出供组合器在防重叠探测翻转时发「已自动暂停/已恢复」提示。
@@ -81,14 +97,14 @@ export declare function systemNotify(title: string, body: string, openUrl: strin
  * 防重叠（auto 策略）：监听器在 apply 时注册、随 fiber 卸载；每条事件进来
  * 先经 shouldNotify() 判定（配置 + 探测），auto 且探测到其他通知源即跳过
  * 自身通知——对用户可观察行为等价于动态注销，且事件低频、无性能顾虑。
- * 探测状态变化（false↔true）经 onProbeChange 回抛，由组合器更新只读
- * service 与提示用户。探测失败静默（通知是增益不是依赖）。
+ * 探测状态变化（false↔true）经 onProbeChange 回抛，由组合器发自动暂停/
+ * 恢复的系统提示。探测失败静默（通知是增益不是依赖）。
  *
  * @param ctx - host context（含 settings 服务的 `notify` scope）。
- * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照）。
+ * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照；
+ *                   追加探测候选 probeServices 也在这里，每次探测读取）。
  * @param baseUrl - 浏览器地址（默认 3080）。
- * @param probeServices - 追加的候选探测 service 名（settings probeServices）。
  * @param onProbeChange - 探测状态变化回调（含首次探测）。
  */
-export declare function applySystemNotify(ctx: Context, configOf: () => NotifyConfig, baseUrl?: string | (() => string), probeServices?: readonly string[], onProbeChange?: (state: ProbeState) => void): void;
+export declare function applySystemNotify(ctx: Context, configOf: () => NotifyConfig, baseUrl?: string | (() => string), onProbeChange?: (state: ProbeState) => void): void;
 //# sourceMappingURL=system-notify.d.ts.map

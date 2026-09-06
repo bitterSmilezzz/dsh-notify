@@ -1,14 +1,13 @@
 /**
- * dsh-notify — notification sounds (Web Audio synthesis).
+ * dsh-notify — 试听提示音（Web Audio 合成）。
  *
- * 四类通知各配一种音效（频率/时长/波形不同，便于区分）。AudioContext
- * 懒创建，首次用户交互时预热——否则后台页面无法出声。声音开关由
- * 配置快照（config.sound）控制。
+ * 单一上行三连音，仅供设置卡片「试听」按钮使用。桌面通知本身的提示音由
+ * host 侧系统通知携带（macOS Glass / Windows toast），浏览器侧不重复播报，
+ * 因此不再维护按事件分类的 pattern 集与节流表（无事件触发路径，属死代码，
+ * 审查轮已删）。AudioContext 懒创建，首次用户交互时预热——否则后台页面
+ * 无法出声。声音开关由配置快照（config.sound）控制。
  */
 import { config } from './config.ts'
-
-/** 四类通知的音效键。 */
-export type SoundKind = 'approval' | 'question' | 'turn' | 'sessionDone'
 
 let audioCtx: AudioContext | null = null
 let audioReady = false
@@ -82,31 +81,20 @@ function tone(freq: number, start: number, dur: number, type: OscillatorType = '
   }, { once: true })
 }
 
-const SOUND_PATTERNS: Record<SoundKind, () => void> = {
-  approval: () => {
-    tone(988, 0, 0.16, 'square', 0.10)
-    tone(988, 0.2, 0.16, 'square', 0.10)
-    tone(740, 0.4, 0.24, 'square', 0.10)
-  },
-  question: () => { tone(659, 0, 0.16); tone(880, 0.2, 0.3) },
-  turn: () => { tone(523, 0, 0.16) },
-  sessionDone: () => { tone(523, 0, 0.16); tone(659, 0.18, 0.16); tone(784, 0.36, 0.32) },
+/** 试听音效：上行三连音（523 → 659 → 784）。 */
+function previewPattern(): void {
+  tone(523, 0, 0.16)
+  tone(659, 0.18, 0.16)
+  tone(784, 0.36, 0.32)
 }
 
-/** 同类音效节流窗口（ms）：连续通知（如瀑布审批）不重复堆叠音效节点。 */
-const SOUND_THROTTLE_MS = 300
-let lastPlayAt: Record<SoundKind, number> = {
-  approval: 0, question: 0, turn: 0, sessionDone: 0,
-}
-
-/** 播放一类通知音效（受 config.sound 开关控制；同类 300ms 内去重）。
- *  force=true 时无视声音开关直接播放——设置卡片的「试听」走这个分支：
- *  试听的目的就是让用户在关闭声音后仍能确认音效，不应被开关静默吞掉。 */
-export function playSound(kind: SoundKind, force = false): void {
+/**
+ * 播放试听音效（受 config.sound 开关控制）。
+ * force=true 时无视声音开关直接播放——设置卡片的「试听」走这个分支：
+ * 试听的目的就是让用户在关闭声音后仍能确认音效，不应被开关静默吞掉。
+ */
+export function playSound(force = false): void {
   if (!force && !config.sound) return
-  const now = performance.now()
-  if (now - lastPlayAt[kind] < SOUND_THROTTLE_MS) return
-  lastPlayAt[kind] = now
   if (!ensureAudio()) return
-  SOUND_PATTERNS[kind]()
+  previewPattern()
 }

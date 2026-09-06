@@ -75,7 +75,13 @@ export function bindConfigScope(ctx: ClientContext): () => void {
   const unsub = scope.subscribe(applySnapshot)
   // 首次立即应用 host 当前值（覆盖默认值——host 是权威源）。
   applySnapshot()
-  return unsub
+  return () => {
+    unsub()
+    // 本 fiber 卸载后不再持有 host 写路径：setConfig 退化为只更新本地快照
+    // （写 host 需重新 bind）。仅当当前绑定仍指向本 scope 时才清空，避免
+    // 交叠/重建绑定误清掉新 fiber 的写路径。
+    if (notifyScope === scope) notifyScope = undefined
+  }
 }
 
 /**
@@ -86,10 +92,14 @@ export function bindConfigScope(ctx: ClientContext): () => void {
 export function setConfig(field: keyof NotifyConfig, mutator: () => void): void {
   mutator()
   announce()
-  if (notifyScope !== undefined) {
-    void notifyScope.set(field, config[field]).catch(() => {
-      // 写失败：广播错误事件，设置卡片可感知并提示。
-      window.dispatchEvent(new CustomEvent('dsh-notify:config-error', { detail: { field } }))
-    })
+  if (notifyScope === undefined) return
+  const fail = (): void => {
+    // 写失败：广播错误事件，设置卡片可感知并提示。
+    window.dispatchEvent(new CustomEvent('dsh-notify:config-error', { detail: { field } }))
+  }
+  try {
+    void notifyScope.set(field, config[field]).catch(fail)
+  } catch {
+    fail() // scope.set 同步抛错（scope 已失效等）：同样广播错误事件，不冒泡。
   }
 }

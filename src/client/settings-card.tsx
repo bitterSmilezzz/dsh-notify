@@ -126,7 +126,7 @@ export function NotifySettingsCard({ t }: { t: LocaleT }) {
                   checked={config.sound}
                   onChange={() => setConfig('sound', () => { config.sound = !config.sound })}
                 />
-                <button type="button" className="dshn-button" onClick={() => playSound('sessionDone', true)}>
+                <button type="button" className="dshn-button" onClick={() => playSound(true)}>
                   {t('notifyTest')}
                 </button>
               </div>
