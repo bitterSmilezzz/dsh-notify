@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSubagent, NOTIFY_EVENTS, probeOfficialNotify, pruneExpired, summaryOf } from '../lib/notify-policy.js'
+import { agentModelLabel, errorDedupKey, isSubagent, NOTIFY_EVENTS, probeOfficialNotify, pruneExpired, summaryOf } from '../lib/notify-policy.js'
 
 test('summaryOf: 空、undefined 与 null 归一为空串', () => {
   assert.equal(summaryOf(undefined), '')
@@ -157,4 +157,42 @@ test('NOTIFY_EVENTS: 适配层事件名映射钉住', () => {
   assert.equal(NOTIFY_EVENTS.approval, 'approval/request')
   assert.equal(NOTIFY_EVENTS.error, 'agent/error')
   assert.equal(NOTIFY_EVENTS.sessionDone, 'agent/disposed')
+})
+
+// ── 正文会话身份（agentModelLabel）──
+
+test('agentModelLabel: 取 options.model（AgentOptions 模型 id）', () => {
+  assert.equal(agentModelLabel({ options: { model: 'deepseek-chat', provider: 'dsh' } }), 'deepseek-chat')
+  assert.equal(agentModelLabel({ options: { model: 'deepseek-chat' } }), 'deepseek-chat')
+})
+
+test('agentModelLabel: model 缺失/为空时回落 provider', () => {
+  assert.equal(agentModelLabel({ options: { provider: 'openai' } }), 'openai')
+  assert.equal(agentModelLabel({ options: { model: '', provider: 'openai' } }), 'openai')
+})
+
+test('agentModelLabel: 取不到一律 undefined，绝不抛错', () => {
+  assert.equal(agentModelLabel(undefined), undefined)
+  assert.equal(agentModelLabel(null), undefined)
+  assert.equal(agentModelLabel({}), undefined)
+  assert.equal(agentModelLabel({ options: undefined }), undefined)
+  assert.equal(agentModelLabel({ options: {} }), undefined)
+  assert.equal(agentModelLabel({ options: { model: 42 } }), undefined)
+  assert.equal(agentModelLabel({ options: { model: ' ' } }), ' ', '空白串是合法模型 id，原样返回')
+  assert.equal(agentModelLabel('x'), undefined)
+})
+
+// ── error 去重指纹（errorDedupKey）──
+
+test('errorDedupKey: agent id + 消息指纹，同 agent 不同消息、不同 agent 同消息均不同键', () => {
+  const a = errorDedupKey('a1', 'TypeError: x')
+  assert.notEqual(a, errorDedupKey('a1', 'ENOENT: no file'), '同 agent 不同消息 → 不同键')
+  assert.notEqual(a, errorDedupKey('a2', 'TypeError: x'), '不同 agent 同消息 → 不同键')
+  assert.equal(errorDedupKey('a1', 'TypeError: x'), a, '确定性：同输入同键')
+})
+
+test('errorDedupKey: 超长消息截断，键长有界', () => {
+  const key = errorDedupKey('a1', 'x'.repeat(5000))
+  assert.ok(key.length < 200, '键长不随消息长度无界增长')
+  assert.equal(key, errorDedupKey('a1', 'x'.repeat(5000)), '截断不破坏确定性')
 })

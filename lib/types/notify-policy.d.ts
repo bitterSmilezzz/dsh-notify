@@ -2,7 +2,8 @@
  * dsh-notify — 通知门控纯函数。
  *
  * 从 system-notify.ts 原样搬出，不含任何 I/O 与平台依赖，以便 node --test
- * 直接覆盖：这两条判定正是「subagent 会话不打扰」与「通知正文可读」的实现点。
+ * 直接覆盖：subagent 会话不打扰、通知正文可读、正文会话身份（模型名）与
+ * error 去重指纹，都是可独立判定的纯逻辑。
  */
 /** 单行化 + 限长（≤max 码点，尾部 …）。按码点截断而非 UTF-16 code unit：
  *  slice 可能切在代理对中间产生孤立代理（半个 emoji 渲染成 �），
@@ -41,6 +42,20 @@ export declare const NOTIFY_EVENTS: {
     /** 会话完成（agent 销毁）。 */
     readonly sessionDone: "agent/disposed";
 };
+/**
+ * 从 agent 载荷读取会话身份标签：优先 `options.model`（AgentOptions 的
+ * 模型 id），缺失时回落 `options.provider`。两者都是可选字符串，运行时
+ * 旧版协议/畸形 payload 可能连 `options` 都没有——结构化读取，取不到一律
+ * 返回 undefined（调用方回落固定文案），绝不抛错（通知是增益不是依赖）。
+ */
+export declare function agentModelLabel(agent: unknown): string | undefined;
+/**
+ * error 去重指纹：agent id + 消息文本（截断拼接，确定性、无散列依赖）。
+ * 同一 agent 的同一错误在去重窗口内只通知一次；不同错误（消息不同）在同一
+ * 窗口内各自通知——用户修复后窗口内出现的新错误不再被旧去重键吞掉。
+ * 截断只限制极长消息的键长（Map 条目只在窗口内活跃，大小受窗口约束）。
+ */
+export declare function errorDedupKey(agentId: string, message: string): string;
 /**
  * 其他通知源（官方/生态）的能力探测：候选 cordis service 名单。
  * 只探测 service 名，不做事件探测（无法区分"未发生"与"不存在"）、
