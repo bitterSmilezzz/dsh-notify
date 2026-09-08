@@ -7,28 +7,23 @@
 import * as react from 'react'
 // Type-only: pulls the ui-settings-plugins SlotMap merge (the settings.plugin.item card seat).
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { config, setConfig } from './config.ts'
 import { playSound } from './sound.ts'
 import type { LocaleT } from './locale.ts'
 
-/** 一个开关行。label 包住整行：点击行内任意处（标题/描述/空白）都可切换，
- *  而不是只点 checkbox 那一小块；Tab 焦点落在 input 上，Enter/Space 切换。 */
+/** 一个开关行：官方 Switch（对齐官方设置面板控件），点击开关切换。 */
 function ToggleRow({ title, desc, checked, onChange }: { title: string; desc?: string; checked: boolean; onChange: () => void }) {
   return (
-    <label className="dshn-row">
+    <div className="dshn-row">
       <span className="dshn-rowText">
         <span className="dshn-rowTitle">{title}</span>
         {desc ? <span className="dshn-rowDesc">{desc}</span> : null}
       </span>
       <span className="dshn-field">
-        {/* role="switch" 让读屏按「开关」语义播报（on/off），与行内视觉一致；
-            原生 checkbox 的隐式 role 是 checkbox，显式 role 覆盖后读屏读
-            aria-checked。aria-checked 与 checked 绑定同一 prop 同源显式同步：
-            任何状态变化（点击/键盘切换）都会经 setConfig → 重渲染同时更新
-            两者，读屏播报与视觉勾选不会分叉。 */}
-        <input type="checkbox" role="switch" aria-label={title} aria-checked={checked} checked={checked} onChange={onChange} />
+        <Switch checked={checked} onChange={onChange} label={title} />
       </span>
-    </label>
+    </div>
   )
 }
 

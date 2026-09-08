@@ -23,7 +23,6 @@ export const CSS = `
 .dshn-rowTitle{font-size:14px;line-height:20px;color:var(--dsw-alias-label-primary)}
 .dshn-rowDesc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12.5px;line-height:18px}
 .dshn-field{display:flex;align-items:center;gap:8px}
-.dshn-field input[type=checkbox]{flex:none;width:16px;height:16px;accent-color:var(--dsw-alias-brand-primary)}
 .dshn-button{appearance:none;height:30px;border:1px solid transparent;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);font:inherit;font-size:13px;line-height:1.5;padding:0 14px;cursor:pointer}
 .dshn-button:hover:not(:disabled){filter:brightness(1.1)}
 .dshn-button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
