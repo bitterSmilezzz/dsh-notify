@@ -37,8 +37,8 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-notify: dictionaries')
   ctx.effect(() => {
     const tag = document.createElement('style')
-    tag.dataset.plugin = 'dsh-notify'
-    tag.dataset.pluginCss = 'dsh-notify'
+    tag.dataset.plugin = '@bittersmilezzz/dsh-notify'
+    tag.dataset.pluginCss = '@bittersmilezzz/dsh-notify/client'
     tag.textContent = CSS
     document.head.appendChild(tag)
     return () => tag.remove()

@@ -1,4 +1,4 @@
-# dsh-notify
+# @bittersmilezzz/dsh-notify
 
 DeepSeek Harness (DSH) 的**系统级桌面通知（Desktop Notifications）**：审批请求 / 轮次完成 / 后台会话完成 / Agent 出错时弹出系统通知，点击通知直接跳转浏览器对应会话。从 dsh-ui-tweaks 按功能拆分出的独立插件包。
 
@@ -12,6 +12,9 @@ DeepSeek Harness (DSH) 的**系统级桌面通知（Desktop Notifications）**�
 ## 安装
 
 ```bash
+# npm（推荐）：包名 @bittersmilezzz/dsh-notify
+dsh plugin --profile <profile> add @bittersmilezzz/dsh-notify
+# 或从 GitHub
 dsh plugin --profile <profile> add github:bitterSmilezzz/dsh-notify
 # 或本地路径
 dsh plugin --profile <profile> add <path-to-repo>

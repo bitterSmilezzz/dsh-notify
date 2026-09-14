@@ -6,7 +6,20 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
-## [未发布]
+## [0.1.12] - 2026-09-13
+
+### 变更
+
+- **包名迁移**：`dsh-notify` → **`@bittersmilezzz/dsh-notify`**，以便发布到 npm registry
+  （原短名在 npm 上已被其他作者占用）。同步更新的加载契约：`package.json` name、
+  `cordis.patch.yml` 的 bundle `name`（`id` 保持短原名，那是实例标识）、客户端 bundle 的
+  `window.__ModuleLoader__.load({ id })`、样式注入的 `data-plugin` / `data-plugin-css` 标记。
+  功能、配置 schema、settings namespace（`notify`）与 UI 文案均未改动。
+- **npm 首次发布**：本版是包进入 npm registry 的首个版本。此前只能通过 GitHub 或本地路径安装。
+- **桌面端兼容**：客户端平台模块（`react`、`react-dom`、`@deepseek-ai/dsh-client-ui-slots`、
+  `@deepseek-ai/dsh-client-ui-primitives`）改标为 **optional peer**（`peerDependenciesMeta`）。
+  它们由 DSH 客户端的冻结模块表在运行时提供，不属于宿主共享包；不标 optional 会被
+  Desktop 的 profile 校验以 `requires missing …` 拒绝加载。
 
 ## [0.1.11] - 2026-09-12
 

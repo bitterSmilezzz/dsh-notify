@@ -8,6 +8,6 @@
 
 - insert:
     - id: dsh-notify
-      name: dsh-notify
+      name: '@bittersmilezzz/dsh-notify'
       inject:
         - settings

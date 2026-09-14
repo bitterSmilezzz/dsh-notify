@@ -1,5 +1,5 @@
 /**
- * dsh-notify — settings card styles (single `<style data-plugin="dsh-notify">`
+ * dsh-notify — settings card styles (single `<style data-plugin-css="@bittersmilezzz/dsh-notify/client">`
  * tag, injected by the client apply and removed again on unload). Class names
  * are prefixed `dshn-` so they cannot collide with other plugins' styles.
  * Colors come only from `--dsw-*` theme tokens.
