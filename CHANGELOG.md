@@ -6,6 +6,14 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.1.13] - 2026-09-15
+
+### 变更
+
+- **DSH 兼容**：`@deepseek-ai/*` 依赖线对齐 DSH `0.1.6-alpha.1`（peer 与 dev 双声明，约束为
+  `^0.1.6-alpha.1`），并同步 `pnpm-workspace.yaml` 的 release-age 例外清单。
+- 本版为纯依赖对齐，**无功能与行为变更**。双半区 typecheck、构建与 56 项回归测试全绿。
+
 ## [0.1.12] - 2026-09-13
 
 ### 变更
