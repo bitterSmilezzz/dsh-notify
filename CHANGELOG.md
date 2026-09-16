@@ -6,6 +6,21 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.1.14] - 2026-09-16
+
+### 变更
+
+- **UI 一致性（组件层重叠清理）**：设置卡片「音效」行残留的自绘 `input[type=checkbox]`
+  开关改为官方 `@deepseek-ai/dsh-client-ui-primitives` 的 `Switch`，与同卡片其余开关行
+  （0.1.10 起已对齐的 `ToggleRow`）同源。
+- 行为差异说明：开关的可点区域由浏览器默认 checkbox 尺寸变为官方 Switch 自身尺寸；
+  该行原本就**不是整行可点**（无 `<label>` 包裹、行上无 `onClick`），故交互语义不变。
+  无障碍名仍由本地化词条 `notifySound` 提供。
+- 该自绘开关原本没有专属 CSS 规则（`styles.ts` 里只有 `.dshn-field` 布局与 radio 样式），
+  故不涉及样式清理。
+- 新增 2 项设置卡片开关契约测试（钉住「开关一律走官方 Switch」，并防自绘开关回流）。
+- 回归测试 56 → 58 项，双半区 typecheck 与构建全绿。
+
 ## [0.1.13] - 2026-09-15
 
 ### 变更

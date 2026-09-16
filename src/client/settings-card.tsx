@@ -113,13 +113,12 @@ export function NotifySettingsCard({ t }: { t: LocaleT }) {
                 <span className="dshn-rowDesc">{t('notifySoundDesc')}</span>
               </div>
               <div className="dshn-field">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-label={t('notifySound')}
-                  aria-checked={config.sound}
+                {/* 官方 Switch（自带开关角色、无障碍名与 aria-checked），与上方 ToggleRow 同源；
+                    「音效」行多一个试听按钮，故不套 ToggleRow，只复用同一个官方控件。 */}
+                <Switch
                   checked={config.sound}
                   onChange={() => setConfig('sound', () => { config.sound = !config.sound })}
+                  label={t('notifySound')}
                 />
                 <button type="button" className="dshn-button" onClick={() => playSound(true)}>
                   {t('notifyTest')}
