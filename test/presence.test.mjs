@@ -14,17 +14,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 const {
-  PRESENCE_RPC_CHANNEL,
-  PRESENCE_ENDPOINT,
   PRESENCE_TTL_MS,
   parsePresencePayload,
   createPresenceTracker,
 } = await import('../src/presence.ts')
 
-test('聚焦常量: 通道/endpoint/TTL 与契约一致（client 半区与 host 必须同名同值）', () => {
-  assert.equal(PRESENCE_RPC_CHANNEL, '/dsh-notify', 'RPC 通道是单段 /dsh-notify')
-  assert.equal(PRESENCE_ENDPOINT, 'presence', 'endpoint 名为 presence')
-  assert.equal(PRESENCE_TTL_MS, 75_000, 'TTL 75s（client 每 30s 续期，容忍两次丢失）')
+test('聚焦常量: TTL 与契约一致（client 每 30s 续期，容忍两次丢失）', () => {
+  assert.equal(PRESENCE_TTL_MS, 75_000, 'TTL 75s')
 })
 
 test('parsePresencePayload: 只接受 { visible: boolean }，正常路径取布尔值', () => {

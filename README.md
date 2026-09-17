@@ -44,7 +44,7 @@ dsh plugin --profile <profile> add <path-to-repo>
 
 ## 权限
 
-**权限等级：medium**（有限范围）：host 半区 spawn 本地通知命令（terminal-notifier / osascript / powershell.exe / notify-send），写入临时 .ps1 脚本（Windows，自删除）；注册一个官方 Connection RPC 通道（`/dsh-notify`，接收浏览器半区的页面可见性上报，走官方 Host/Origin + 浏览器认证围栏）；读取 settings 的 `notify` 与 `locale` namespace。不访问用户文件/会话数据，不发起外部网络请求。通知负载只作为 argv 传入，命令恒为字符串字面量，杜绝命令注入。
+**权限等级：medium**（有限范围）：host 半区 spawn 本地通知命令（terminal-notifier / osascript / powershell.exe / notify-send），写入临时 .ps1 脚本（Windows，自删除）；注册一条精确 HTTP 路由（`/api/dsh-notify/presence`，接收浏览器半区的页面可见性上报；信任围栏复用官方 `connection.requestRejection`：Host/Origin 检查 + 浏览器认证）；读取 settings 的 `notify` 与 `locale` namespace。不访问用户文件/会话数据，不发起外部网络请求。通知负载只作为 argv 传入，命令恒为字符串字面量，杜绝命令注入。
 
 ## 已知风险
 

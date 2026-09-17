@@ -24,7 +24,8 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import { errorDedupKey, isSubagent, NOTIFY_EVENTS, pruneExpired, sessionLabelOf, summaryOf } from './notify-policy.ts'
 import { notifyTextOf, type NotifyText } from './notify-text.ts'
-import { createPresenceTracker, parsePresencePayload, PRESENCE_ENDPOINT, PRESENCE_RPC_CHANNEL } from './presence.ts'
+import { createPresenceTracker } from './presence.ts'
+import { registerPresenceRoute } from './presence-route.ts'
 import { systemNotify } from './system-notify.ts'
 
 /** 通知开关（与 settings schema 的 notify 子对象一致）。 */
@@ -72,24 +73,28 @@ export function applySystemNotify(
   baseUrl: string | (() => string) = 'http://127.0.0.1:3080',
 ): void {
   const presence = createPresenceTracker()
-  // 聚焦通道：client 半区经官方 Connection RPC 上报页面可见性。connection 是
-  // 可选服务（无浏览器半区 / 非 web 部署时不存在）→ scoped inject，缺失时
-  // 只跳过聚焦感知（通知照常，判定恒为"不可见"）；rpc.handle 自带信任围栏
-  // （Host/Origin + 浏览器认证）并把注册挂到当前 fiber，无需再包 effect。
-  ctx.inject(['connection'], (connectionCtx) => {
+  // 聚焦通道：client 半区把页面可见性 POST 到 /api/dsh-notify/presence。
+  // 路由注册走 `ctx.webServer.register`（exact route），信任围栏复用官方
+  // `connection.requestRejection`（Host/Origin 检查 + 浏览器认证，与 /api 共享
+  // 通道同一套）。两个服务都是可选的（非 web 部署没有），用 scoped inject：
+  // 任一缺失时只跳过聚焦感知（通知照常，判定恒为"不可见"）；注册随子 fiber
+  // 回收（ctx.effect）。
+  // 不用 `connection.rpc.handle`：它内部用 owner.webServer 注册 prefix route，
+  // 而该 owner ctx 解析不到调用者声明的 webServer 依赖（实测抛
+  // "cannot get property webServer without inject"、注册静默失败），见
+  // presence-route.ts 头注释。
+  ctx.inject(['connection', 'webServer'], (connectionCtx) => {
     const connection = connectionCtx.get('connection') as HostConnectionHandle | undefined
-    if (connection === undefined) return
-    connection.rpc.handle(PRESENCE_RPC_CHANNEL, async (endpoint, payload) => {
-      if (endpoint !== PRESENCE_ENDPOINT) {
-        return { ok: false, error: { code: 'dsh-notify/unknown-endpoint', message: `unknown endpoint: ${endpoint}`, details: {} } }
-      }
-      const visible = parsePresencePayload(payload)
-      if (visible === undefined) {
-        return { ok: false, error: { code: 'dsh-notify/bad-payload', message: 'expected { visible: boolean }', details: {} } }
-      }
-      presence.report(visible)
-      return { ok: true, value: null }
-    })
+    const webServer = connectionCtx.get('webServer') as { register?: unknown } | undefined
+    if (connection === undefined || typeof webServer?.register !== 'function') return
+    connectionCtx.effect(
+      () => registerPresenceRoute({
+        register: (route) => (webServer.register as (r: unknown) => () => void)(route),
+        guard: (req) => connection.requestRejection(req),
+        report: (visible) => presence.report(visible),
+      }),
+      'dsh-notify: presence route',
+    )
   })
   // 通知文案：跟随官方 locale 设置的语言偏好，读不到回落中文（见 notify-text.ts）。
   let localeCache: { at: number; preference: unknown } | undefined

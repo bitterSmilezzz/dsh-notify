@@ -26,7 +26,6 @@ fs.existsSync = () => false
 const mod = await import('../src/notify-events.ts')
 const { applySystemNotify } = mod
 const { NOTIFY_EVENTS } = await import('../src/notify-policy.ts')
-const { PRESENCE_ENDPOINT, PRESENCE_RPC_CHANNEL } = await import('../src/presence.ts')
 
 /** 全开配置（通知是测试主体，不受开关干扰）。 */
 const fullConfig = {
@@ -157,25 +156,49 @@ test('文案本地化: locale.preference = en 时标题与正文用英文；读�
 
 // ── 聚焦抑制：页面可见时抑制非阻塞事件，审批/错误不抑制 ──
 
-/** 从 harness 取出聚焦上报 handler（scoped inject 的 connection.rpc.handle）。 */
-function presenceReporter(injections) {
-  const injected = injections.find((item) => item.deps.includes('connection'))
-  assert.ok(injected, '必须注册聚焦通道（scoped inject connection）')
-  const handled = []
-  const connection = { rpc: { handle: (channel, handler) => { handled.push({ channel, handler }); return async () => {} } } }
-  injected.callback({ get: (name) => (name === 'connection' ? connection : undefined) })
-  assert.equal(handled.length, 1, '注册一个 RPC 通道')
-  assert.equal(handled[0].channel, PRESENCE_RPC_CHANNEL, '通道名与 client 半区一致')
-  return handled[0].handler
+/** 假请求：异步可迭代的 body（route handler 用 for-await 读）。 */
+function makeReq(method, body) {
+  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))]
+  return {
+    method,
+    async *[Symbol.asyncIterator]() { for (const chunk of chunks) yield chunk },
+  }
+}
+
+/** 假响应：只记录状态码。 */
+function makeRes() {
+  const seen = { status: undefined }
+  return { seen, res: { writeHead: (status) => { seen.status = status }, end: () => {} } }
+}
+
+/**
+ * 从 harness 取出聚焦路由并调用一次。
+ * 生产路径：scoped inject（connection + webServer）→ ctx.effect(registerPresenceRoute)。
+ * @returns 一次 POST 的状态码。
+ */
+async function postPresence(injections, body, method = 'POST') {
+  const injected = injections.find((item) => item.deps.includes('connection') && item.deps.includes('webServer'))
+  assert.ok(injected, '必须 scoped inject connection + webServer（注册聚焦路由）')
+  const registered = []
+  const effects = []
+  const connection = { requestRejection: () => undefined }
+  const webServer = { register: (route) => { registered.push(route); return () => {} } }
+  injected.callback({
+    get: (name) => (name === 'connection' ? connection : name === 'webServer' ? webServer : undefined),
+    effect: (fn) => { effects.push(fn()); return () => {} },
+  })
+  assert.equal(registered.length, 1, '注册一条聚焦路由')
+  assert.equal(registered[0].path, '/api/dsh-notify/presence', '路由路径与 client 半区一致')
+  const { seen, res } = makeRes()
+  await registered[0].handler(makeReq(method, body), res)
+  return seen.status
 }
 
 test('聚焦抑制: 可见时轮次完成/会话完成不发，审批与错误照发', async () => {
   spawned.length = 0
   const { ctx, handlers, injections } = makeHarness()
   applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
-  const report = presenceReporter(injections)
-  const ack = await report(PRESENCE_ENDPOINT, { visible: true })
-  assert.deepEqual(ack, { ok: true, value: null }, '合法上报返回 ok')
+  assert.equal(await postPresence(injections, { visible: true }), 204, '合法上报回 204')
   handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
   handlers.get(NOTIFY_EVENTS.sessionDone)({ agent: agent('a1', 'deepseek-chat') })
   assert.equal(spawned.length, 0, '页面可见时非阻塞事件不打扰')
@@ -191,15 +214,12 @@ test('聚焦抑制: 上报 false 后恢复通知；畸形 payload 被拒且不�
   spawned.length = 0
   const { ctx, handlers, injections } = makeHarness()
   applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
-  const report = presenceReporter(injections)
-  const bad = await report(PRESENCE_ENDPOINT, { visible: 'yes' })
-  assert.equal(bad.ok, false, '畸形 payload 返回错误结果')
-  const unknown = await report('nope', { visible: true })
-  assert.equal(unknown.ok, false, '未知 endpoint 返回错误结果')
-  await report(PRESENCE_ENDPOINT, { visible: true })
+  assert.equal(await postPresence(injections, { visible: 'yes' }), 400, '畸形 payload 回 400')
+  assert.equal(await postPresence(injections, undefined, 'GET'), 405, '非 POST 回 405')
+  await postPresence(injections, { visible: true })
   handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
   assert.equal(spawned.length, 0, '可见状态下抑制')
-  await report(PRESENCE_ENDPOINT, { visible: false })
+  await postPresence(injections, { visible: false })
   handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a2', 'deepseek-chat'), status: 'idle' })
   assert.equal(spawned.length, 1, '不可见后恢复通知')
 })

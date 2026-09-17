@@ -1,9 +1,9 @@
 /**
  * dsh-notify — 聚焦感知（host 侧状态机）。
  *
- * 浏览器半区在页面可见性变化时经官方 Connection RPC 通道上报（channel
- * `/dsh-notify`，endpoint `presence`，payload `{ visible }`）；host 在发通知
- * 前查一次：页面可见且上报新鲜 → 用户正看着界面，系统通知是纯噪音，跳过。
+ * 浏览器半区在页面可见性变化时把状态 POST 给 host（路由与协议见
+ * presence-route.ts）；host 在发通知前查一次：页面可见且上报新鲜 → 用户正
+ * 看着界面，系统通知是纯噪音，跳过。
  *
  * 保鲜期（TTL）是必须的：可见状态靠 client 定时续期（见 client/presence.ts），
  * 页面崩溃 / 网络断开 / client 未加载时续期停止，TTL 一到即恢复通知——
@@ -12,10 +12,6 @@
  * 本模块只做状态与判定（无 I/O、无 ctx），node --test 直接覆盖；通道注册与
  * 通知编排见 notify-events.ts。
  */
-/** 聚焦上报的 RPC 通道（官方 Connection 通道格式：单段 `/name`）。 */
-export declare const PRESENCE_RPC_CHANNEL = "/dsh-notify";
-/** 聚焦上报的 endpoint 名（channel 内相对路径）。 */
-export declare const PRESENCE_ENDPOINT = "presence";
 /**
  * 可见状态的保鲜期。client 可见时每 30s 续期一次，75s 容忍两次连续丢失
  * （一次丢包 / 一次定时器节流），又足够短到页面崩溃后一分钟内恢复通知。
