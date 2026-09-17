@@ -23,11 +23,12 @@ cp.spawn = (cmd, args, opts) => {
 /** 恒走 osascript 兜底分支：args 形态稳定可断言（[-e, script, '--', title, body]）。 */
 fs.existsSync = () => false
 
-const mod = await import('../src/system-notify.ts')
+const mod = await import('../src/notify-events.ts')
 const { applySystemNotify } = mod
 const { NOTIFY_EVENTS } = await import('../src/notify-policy.ts')
+const { PRESENCE_ENDPOINT, PRESENCE_RPC_CHANNEL } = await import('../src/presence.ts')
 
-/** 全开配置（通知是测试主体，不受开关/防重叠干扰）。 */
+/** 全开配置（通知是测试主体，不受开关干扰）。 */
 const fullConfig = {
   enabled: true,
   approval: true,
@@ -35,18 +36,23 @@ const fullConfig = {
   sessionDone: true,
   error: true,
   sound: false,
-  overlap: 'auto',
-  probeServices: [],
 }
 
-/** 假 ctx：只记录 on 注册的 handler；get 恒 undefined（防重叠探测不命中）。 */
-function makeHarness() {
+/**
+ * 假 ctx：记录 on 注册的 handler、inject 的 scoped 注册、可注入的 service。
+ * @param services - ctx.get(name) 的返回值表（sessionTitle 替身等）。
+ * @param describe - ctx.settings.describe() 的返回（locale 偏好等）。
+ */
+function makeHarness(services = {}, describe = () => []) {
   const handlers = new Map()
+  const injections = []
   const ctx = {
-    get: () => undefined,
+    get: (name) => services[name],
     on: (event, handler) => { handlers.set(event, handler); return () => handlers.delete(event) },
+    inject: (deps, callback) => { injections.push({ deps, callback }); return {} },
+    settings: { describe },
   }
-  return { ctx, handlers }
+  return { ctx, handlers, injections }
 }
 
 /** 构造最小 agent 载荷（options 即 AgentOptions；session.header 供 isSubagent）。 */
@@ -60,7 +66,7 @@ const agent = (id, model, provider) => ({
 const lastBody = () => spawned[spawned.length - 1].args[4]
 const lastTitle = () => spawned[spawned.length - 1].args[3]
 
-// ── 通知正文：会话身份（模型名）──
+// ── 通知正文：会话身份（模型名 / 会话标题）──
 
 test('turnDone: 正文带模型名（多会话可区分），无模型时回落固定文案', () => {
   spawned.length = 0
@@ -76,7 +82,23 @@ test('turnDone: 正文带模型名（多会话可区分），无模型时回落�
   assert.equal(lastBody(), '该会话已结束一轮，可以切回查看')
 })
 
-test('approval/request: waterfall 正常 next() 委托，正文带模型名与工具名', async () => {
+test('turnDone: 正文优先会话标题（官方 sessionTitle 服务），标题缺失回落模型名', () => {
+  spawned.length = 0
+  const title = { value: '修复登录 bug' }
+  const services = {
+    sessionTitle: { get: () => ({ title: title.value }) },
+  }
+  const { ctx, handlers } = makeHarness(services)
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  assert.ok(lastBody().includes('修复登录 bug'), '有会话标题时正文用标题')
+  assert.ok(!lastBody().includes('deepseek-chat'), '标题可用时不再拼模型名')
+  title.value = ''
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a2', 'deepseek-chat'), status: 'idle' })
+  assert.ok(lastBody().includes('deepseek-chat'), '空标题回落模型名')
+})
+
+test('approval/request: waterfall 正常 next() 委托，正文带会话身份与工具名', async () => {
   spawned.length = 0
   const { ctx, handlers } = makeHarness()
   applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
@@ -113,6 +135,73 @@ test('error: 正文带模型名 + 错误消息', () => {
   assert.equal(lastTitle(), 'Agent 出错')
   assert.ok(lastBody().includes('deepseek-chat'), '正文含模型名')
   assert.ok(lastBody().includes('TypeError: x is not a function'), '正文含错误消息')
+})
+
+// ── 文案本地化：跟随官方 locale 设置偏好 ──
+
+test('文案本地化: locale.preference = en 时标题与正文用英文；读不到回落中文', () => {
+  spawned.length = 0
+  const describe = () => [{ ns: 'locale', value: { preference: 'en' } }]
+  const { ctx, handlers } = makeHarness({}, describe)
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  assert.equal(lastTitle(), 'Turn finished', '英文偏好用英文标题')
+  assert.ok(lastBody().includes('deepseek-chat'), '英文正文仍带会话身份')
+  assert.ok(lastBody().includes('replied'), '英文正文用英文模板')
+  // 另一份 ctx（无 locale namespace）：回落中文。
+  const fallback = makeHarness()
+  applySystemNotify(fallback.ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  fallback.handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a2', 'deepseek-chat'), status: 'idle' })
+  assert.equal(lastTitle(), '轮次完成', '无 locale 偏好回落中文')
+})
+
+// ── 聚焦抑制：页面可见时抑制非阻塞事件，审批/错误不抑制 ──
+
+/** 从 harness 取出聚焦上报 handler（scoped inject 的 connection.rpc.handle）。 */
+function presenceReporter(injections) {
+  const injected = injections.find((item) => item.deps.includes('connection'))
+  assert.ok(injected, '必须注册聚焦通道（scoped inject connection）')
+  const handled = []
+  const connection = { rpc: { handle: (channel, handler) => { handled.push({ channel, handler }); return async () => {} } } }
+  injected.callback({ get: (name) => (name === 'connection' ? connection : undefined) })
+  assert.equal(handled.length, 1, '注册一个 RPC 通道')
+  assert.equal(handled[0].channel, PRESENCE_RPC_CHANNEL, '通道名与 client 半区一致')
+  return handled[0].handler
+}
+
+test('聚焦抑制: 可见时轮次完成/会话完成不发，审批与错误照发', async () => {
+  spawned.length = 0
+  const { ctx, handlers, injections } = makeHarness()
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  const report = presenceReporter(injections)
+  const ack = await report(PRESENCE_ENDPOINT, { visible: true })
+  assert.deepEqual(ack, { ok: true, value: null }, '合法上报返回 ok')
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  handlers.get(NOTIFY_EVENTS.sessionDone)({ agent: agent('a1', 'deepseek-chat') })
+  assert.equal(spawned.length, 0, '页面可见时非阻塞事件不打扰')
+  handlers.get(NOTIFY_EVENTS.error)({ agent: agent('a1', 'deepseek-chat'), turn: 1, step: 1, error: new Error('boom') })
+  assert.equal(spawned.length, 1, '错误不受聚焦抑制（要送达）')
+  let nexted = 0
+  await handlers.get(NOTIFY_EVENTS.approval)({ agent: agent('a1', 'deepseek-chat'), toolName: '执行命令' }, async () => { nexted += 1 })
+  assert.equal(nexted, 1, '审批仍委托 next()')
+  assert.equal(spawned.length, 2, '审批不受聚焦抑制（阻塞性）')
+})
+
+test('聚焦抑制: 上报 false 后恢复通知；畸形 payload 被拒且不影响状态', async () => {
+  spawned.length = 0
+  const { ctx, handlers, injections } = makeHarness()
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  const report = presenceReporter(injections)
+  const bad = await report(PRESENCE_ENDPOINT, { visible: 'yes' })
+  assert.equal(bad.ok, false, '畸形 payload 返回错误结果')
+  const unknown = await report('nope', { visible: true })
+  assert.equal(unknown.ok, false, '未知 endpoint 返回错误结果')
+  await report(PRESENCE_ENDPOINT, { visible: true })
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  assert.equal(spawned.length, 0, '可见状态下抑制')
+  await report(PRESENCE_ENDPOINT, { visible: false })
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a2', 'deepseek-chat'), status: 'idle' })
+  assert.equal(spawned.length, 1, '不可见后恢复通知')
 })
 
 // ── error 去重：消息指纹 ──

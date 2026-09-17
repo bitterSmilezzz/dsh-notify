@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { agentModelLabel, errorDedupKey, isSubagent, NOTIFY_EVENTS, probeOfficialNotify, pruneExpired, summaryOf } from '../lib/notify-policy.js'
+import { agentModelLabel, errorDedupKey, isSubagent, NOTIFY_EVENTS, pruneExpired, sessionLabelOf, summaryOf } from '../lib/notify-policy.js'
 
 test('summaryOf: 空、undefined 与 null 归一为空串', () => {
   assert.equal(summaryOf(undefined), '')
@@ -106,50 +106,20 @@ test('isSubagent: 结构缺层 / null / 非对象一律视为主会话', () => {
   assert.equal(isSubagent('subagent'), false)
 })
 
-// ── 防重叠探测（probeOfficialNotify）──
+// ── 会话身份标签（sessionLabelOf）──
 
-test('probeOfficialNotify: 命中内置候选名返回 official + source', () => {
-  const ctx = { get: (name) => name === 'notification' ? {} : undefined }
-  const out = probeOfficialNotify(ctx)
-  assert.equal(out.official, true)
-  assert.equal(out.source, 'notification')
+test('sessionLabelOf: 有会话标题时用标题，空/缺失回落模型名', () => {
+  const a = { options: { model: 'deepseek-chat' } }
+  assert.equal(sessionLabelOf('修复登录 bug', a), '修复登录 bug')
+  assert.equal(sessionLabelOf('', a), 'deepseek-chat', '空标题回落模型名')
+  assert.equal(sessionLabelOf(undefined, a), 'deepseek-chat')
+  assert.equal(sessionLabelOf(null, a), 'deepseek-chat')
+  assert.equal(sessionLabelOf(123, a), 'deepseek-chat', '非字符串标题按缺失处理')
 })
 
-test('probeOfficialNotify: 生态常用名也命中（notifyCenter/toast）', () => {
-  for (const name of ['notifications', 'notifyCenter', 'desktopNotify', 'systemNotify', 'toast']) {
-    const out = probeOfficialNotify({ get: (n) => n === name ? {} : undefined })
-    assert.equal(out.official, true, name)
-    assert.equal(out.source, name, name)
-  }
-})
-
-test('probeOfficialNotify: 无任何通知源返回 official=false', () => {
-  const out = probeOfficialNotify({ get: () => undefined })
-  assert.equal(out.official, false)
-  assert.equal(out.source, undefined)
-})
-
-test('probeOfficialNotify: 空 ctx（无 get 面）不抛错', () => {
-  const out = probeOfficialNotify({})
-  assert.equal(out.official, false)
-})
-
-test('probeOfficialNotify: get 抛错视为未命中，绝不外抛', () => {
-  const out = probeOfficialNotify({ get: () => { throw new Error('service not ready') } })
-  assert.equal(out.official, false)
-})
-
-test('probeOfficialNotify: 配置追加名单生效且优先级在内置之后', () => {
-  const ctx = { get: (name) => name === 'myNotifier' ? {} : undefined }
-  // 无追加名单：不命中
-  assert.equal(probeOfficialNotify(ctx).official, false)
-  // 追加后命中，source 为追加名
-  const out = probeOfficialNotify(ctx, ['myNotifier'])
-  assert.equal(out.official, true)
-  assert.equal(out.source, 'myNotifier')
-  // 内置名优先于追加名（同命中时取内置）
-  const both = probeOfficialNotify({ get: (name) => name === 'notification' || name === 'myNotifier' ? {} : undefined }, ['myNotifier'])
-  assert.equal(both.source, 'notification')
+test('sessionLabelOf: 标题与模型名都取不到时 undefined（调用方回落固定文案）', () => {
+  assert.equal(sessionLabelOf(undefined, {}), undefined)
+  assert.equal(sessionLabelOf(undefined, null), undefined)
 })
 
 test('NOTIFY_EVENTS: 适配层事件名映射钉住', () => {

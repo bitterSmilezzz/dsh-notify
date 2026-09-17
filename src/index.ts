@@ -1,29 +1,30 @@
 /**
  * dsh-notify — host half（组合器）。
  *
- * 监听 Cordis 事件发 macOS/Windows 系统桌面通知（实现见 system-notify.ts），
- * 点击通知跳转浏览器对应会话（client 半区的 deep-link 读取 `?session=`）。
+ * 监听 Cordis 事件发系统桌面通知（平台通道见 system-notify.ts，事件编排见
+ * notify-events.ts），点击通知跳转浏览器对应会话（client 半区的 deep-link
+ * 读取 `#session=`）。
  *
  * 配置契约：host settings namespace `notify` 为权威源（client 设置卡片与
  * host 通知逻辑共享同一配置）：
- *   - notify: { enabled, approval, turn, sessionDone, error, sound, overlap, probeServices }
+ *   - notify: { enabled, approval, turn, sessionDone, error, sound }
  *
- * 防重叠：`overlap: 'auto'`（默认）下探测其他通知源（官方/生态），命中即
- * 自动跳过自身通知；探测状态仅供 host 自动暂停判定，翻转边界发一次系统
- * 提示（不注册 service，client 设置卡片无探测状态 UI）。
+ * 聚焦感知：client 半区经官方 Connection RPC 通道上报页面可见性，可见时
+ * 抑制「轮次完成 / 会话完成」这类非阻塞通知（见 notify-events.ts 分级说明）。
  *
- * inject 为最小集：settings（注册 namespace + 读取通知开关）。
+ * inject 为最小集：settings（注册 namespace + 读取通知开关）。connection /
+ * sessionTitle / webServer 都是可选能力，一律 `ctx.get` / scoped inject 读取，
+ * 缺失时优雅降级（通知是增益不是依赖）。
  */
-import type { Context } from '@deepseek-ai/cordis';
-import type {} from '@deepseek-ai/dsh-agent';
-import type {} from '@deepseek-ai/dsh-user-approval';
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-user-approval'
 // Type-only: pulls the dsh-settings Context merge (ctx.settings) — 官方
 // SettingsProvider 类型，register 返回 SettingsScope<T>，get() 直接给
 // schema 推断类型，不再需要手写 NotifyHostContext。
-import type {} from '@deepseek-ai/dsh-settings';
+import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery';
-import { applySystemNotify, systemNotify, type NotifyConfig } from './system-notify.ts';
-import type { ProbeState } from './notify-policy.ts';
+import { applySystemNotify, type NotifyConfig } from './notify-events.ts'
 
 /** 插件配置页的 settings namespace：注册后出现在「设置 → 插件 → 配置」分派列表。 */
 export const NOTIFY_SETTINGS_NAMESPACE = 'notify'
@@ -43,8 +44,6 @@ export function apply(ctx: Context, _config: Record<string, never> = {}): void {
     sessionDone: z.boolean().default(true),
     error: z.boolean().default(true),
     sound: z.boolean().default(true),
-    overlap: z.union([z.const('auto'), z.const('mine')]).default('auto'),
-    probeServices: z.array(z.string()).default([]),
   }))
 
   // 系统级桌面通知：监听 Cordis 事件，读 settings 配置判断开关。
@@ -58,21 +57,7 @@ export function apply(ctx: Context, _config: Record<string, never> = {}): void {
       sessionDone: value.sessionDone,
       error: value.error,
       sound: value.sound,
-      overlap: value.overlap,
-      probeServices: value.probeServices,
     }
-  }
-  // 暂停/恢复提示：仅在探测状态翻转时发一次（首次探测不发）。
-  let prevProbe: ProbeState | undefined
-  const onProbeChange = (state: ProbeState): void => {
-    if (prevProbe !== undefined && prevProbe.official !== state.official) {
-      if (state.official) {
-        systemNotify('dsh-notify 已自动暂停', `检测到其他通知源（${state.source ?? '未知'}），已暂停自身通知；可在设置中改为「始终用本插件」恢复。`, undefined, false)
-      } else {
-        systemNotify('dsh-notify 已恢复', '其他通知源已消失，桌面通知恢复由本插件接管。', undefined, false)
-      }
-    }
-    prevProbe = state
   }
   // 深链基址：惰性读 webServer 实际监听端口（官方 dsh-web-app 同款读取），每次通知
   // 都重新解析——apply 早于 webServer 就绪、或用 --port 起非默认端口时，
@@ -82,8 +67,5 @@ export function apply(ctx: Context, _config: Record<string, never> = {}): void {
     const port = typeof webServer?.port === 'number' && webServer.port > 0 ? webServer.port : 3080
     return `http://127.0.0.1:${port}`
   }
-  // probeServices 并入 notifyConfig() 每次读取（不再 apply 时快照）：改
-  // settings 即时生效，无需重启（见 notifyConfig 与 system-notify 的
-  // configOf().probeServices）。
-  applySystemNotify(ctx, notifyConfig, baseUrlOf, onProbeChange)
+  applySystemNotify(ctx, notifyConfig, baseUrlOf)
 }

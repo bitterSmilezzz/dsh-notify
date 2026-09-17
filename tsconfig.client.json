@@ -1,6 +1,8 @@
 {
   // Client half: browser sources only (src/client/**). JSX via react-jsx,
   // DOM libs, no node ambient types — matches the official client base shape.
+  // Emits declaration-only output to lib/types/client (the path package.json
+  // exports as the `./client` types entry); typecheck passes `--noEmit` on top.
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -23,7 +25,8 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "noEmit": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
     "rootDir": "src/client",
     "outDir": "lib/types/client"
   },

@@ -1,58 +1,33 @@
 /**
- * dsh-notify — system-level desktop notifications (host side).
+ * dsh-notify — system-level desktop notifications (host side, platform channels).
  *
- * 监听 Cordis 事件发系统通知，按平台分派：
+ * 平台分派：
  *   - macOS:   terminal-notifier（-open 点击跳转浏览器对应会话），缺失或
  *             运行失败时 osascript 兜底（不可点击，仅显示）
  *   - Windows: PowerShell WinRT toast（点击「查看会话」跳转，无 openUrl 时仅展示）
+ *   - Linux:   notify-send（libnotify，展示型通知；无点击跳转通道）
  *   - 其他平台: 静默跳过（桌面通知没有通用入口，增益不是依赖）
  *
- * 开关读 host settings 的 `notify` namespace（与 client 设置卡片共享同一
- * 配置）。通知是增益不是依赖：所有失败静默，绝不拖垮宿主进程（含 spawn 的
- * 异步 error，必须被消费，否则 unhandled 'error' 会崩掉整个宿主）。
+ * 通知是增益不是依赖：所有失败静默，绝不拖垮宿主进程（含 spawn 的异步
+ * error，必须被消费，否则 unhandled 'error' 会崩掉整个宿主）。
  *
  * 注入安全（两条约束，都是硬性的）：
  *   - spawn 调用点的 command 一律是字符串字面量，候选路径逐个判断后再用
- *     各自的字面量封装，绝不把变量当命令；
+ *     各自的字面量封装，绝不把变量当命令（PATH 探测只用于"是否存在"判定，
+ *     命令本身仍是字面量，由 OS 按 PATH 解析）；
  *   - 通知负载（标题/正文/URL）只作为 argv 传入：Windows 的 toast 脚本是
  *     -File 执行的静态 .ps1，负载经命名参数进入，脚本内用
  *     SecurityElement.Escape 构造 XML，不拼进命令字符串；静音开关经
  *     环境变量 DSH_NOTIFY_SILENT 传入（不占 param 参数位，测试钉住
  *     param 三参形态不变）。
+ *
+ * 事件监听与通知编排在 notify-events.ts（本模块只负责"怎么发"）。
  */
 import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { ApprovalRequest, ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
-import type {} from '@deepseek-ai/dsh-user-approval';
-// Type-only: pulls the @deepseek-ai/cordis Events merge (agent/status, agent/error).
-import type {} from '@deepseek-ai/dsh-agent';
-import type { Context } from '@deepseek-ai/cordis';
-import { agentModelLabel, errorDedupKey, isSubagent, NOTIFY_EVENTS, probeOfficialNotify, pruneExpired, summaryOf, type ProbeState } from './notify-policy.ts'
-// Type-only: pulls the host Connection service merge (ctx.connection) for the
-// authenticated deep-link URL（带进程 token，首次点击无需手动种 cookie）。
-import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection';
-
-/** 通知开关（与 settings schema 的 notify 子对象一致）。 */
-export interface NotifyConfig {
-  enabled: boolean
-  approval: boolean
-  turn: boolean
-  sessionDone: boolean
-  error: boolean
-  /** 提示音：true=显式 Glass（macOS）/系统默认音（Windows）；false=跟随系统默认（macOS）/真静音（Windows）。 */
-  sound: boolean
-  /**
-   * 与其他通知源（官方/生态）冲突时的策略：
-   *   - 'auto'（默认）：探测到其他通知源即跳过自身通知（防双份刷屏）；
-   *   - 'mine'：忽略探测结果，始终用自己的（主动双开，自负重复风险）。
-   */
-  overlap: 'auto' | 'mine'
-  /** 追加的候选探测 service 名（settings probeServices；每次探测时随 configOf() 读取，改配置即时生效）。 */
-  probeServices: readonly string[]
-}
 
 /** 当前宿主平台（spawn 前分派，避免在不适用的平台上尝试不存在的二进制）。 */
 const PLATFORM: NodeJS.Platform = process.platform
@@ -166,6 +141,22 @@ function spawnOsascript(args: readonly string[]): void {
 }
 
 /**
+ * 后台启动 notify-send（Linux，libnotify）。失败全程静默。command 是字符串
+ * 字面量（注入约束）：探测（findOnPath）只决定"是否值得尝试"，实际由 OS
+ * 按 PATH 解析该字面量——两者之间即使发生 TOCTOU，结果也只是 spawn 失败后
+ * 被静默吞掉，通知是增益不是依赖。
+ */
+function spawnNotifySend(args: readonly string[]): void {
+  try {
+    const child = spawn('notify-send', [...args], { stdio: 'ignore', detached: true, windowsHide: true })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // 同步失败（参数非法等）同样静默。
+  }
+}
+
+/**
  * 后台启动 powershell.exe（WinRT toast）。失败全程静默。spawn 调用点的
  * command 是字符串字面量（注入约束）；异步 'error' 必须被消费。返回 child
  * 供调用方注册 exit/超时兜底清理（见 notifyWindows），失败返回 undefined。
@@ -227,6 +218,34 @@ export function pruneStalePs1Scripts(dir = tmpdir(), now = Date.now(), staleMs =
 }
 
 /**
+ * 在 PATH 中查找一个可执行文件，返回命中路径（找不到返回 null）。
+ * 纯查询：不 spawn、不做 shell 展开、不缓存。用于 Linux 侧判断
+ * notify-send 是否值得尝试（命令本身仍以字面量 spawn，见 spawnNotifySend）。
+ * @param name - 可执行文件名（不含路径分隔符）。
+ * @param pathEnv - PATH 变量值（默认 process.env.PATH）。
+ * @param exists - 存在性判定（注入便于测试；默认 node:fs existsSync）。
+ * @param separator - PATH 条目分隔符（注入便于测试；默认平台分隔符）。
+ */
+export function findOnPath(
+  name: string,
+  pathEnv: string | undefined = process.env.PATH,
+  exists: (path: string) => boolean = existsSync,
+  separator: string = delimiter,
+): string | null {
+  if (pathEnv === undefined || pathEnv === '') return null
+  for (const dir of pathEnv.split(separator)) {
+    if (dir === '') continue
+    const candidate = join(dir, name)
+    try {
+      if (exists(candidate)) return candidate
+    } catch {
+      // 单个条目判定失败（权限等）：跳过，继续找。
+    }
+  }
+  return null
+}
+
+/**
  * 构造传给 powershell.exe 的脚本命名参数 argv。
  *
  * 保持 `-Name value` 分离形式（含空格的值由 Node spawn 自动加引号、PowerShell
@@ -248,6 +267,17 @@ export function psNamedArgs(title: string, body: string, openUrl?: string): stri
   const args = ['-Title', dashSafe(title), '-Body', dashSafe(body)]
   if (openUrl !== undefined && openUrl !== '') args.push('-OpenUrl', dashSafe(openUrl))
   return args
+}
+
+/**
+ * 构造传给 notify-send 的 argv。
+ * 标题/正文是位置参数，若以 `-` 开头会被 GOption 解析成选项名——用 `--`
+ * 显式终止选项解析，负载再原样跟随。`-a DSH` 让通知来源显示为 DSH 而非
+ * 脚本名；`-t 10000` 让通知 10s 后自动消失（不堆积在通知中心）。
+ * 导出仅供测试钉住 argv 形态与 `--` 终止符。
+ */
+export function notifySendArgs(title: string, body: string): string[] {
+  return ['-a', 'DSH', '-t', '10000', '--', title, body]
 }
 
 /**
@@ -330,13 +360,27 @@ function notifyWindows(title: string, body: string, openUrl: string | undefined,
 }
 
 /**
+ * Linux 通知：notify-send（libnotify；GNOME/KDE/XFCE 等桌面发行版普遍预装）。
+ * 展示型通知——notify-send 没有可靠的"点击回调"通道（-A 需进程长驻等待，
+ * 与 fire-and-forget 语义冲突），故 Linux 上通知不可点击；未安装
+ * notify-send 时静默跳过（增益不是依赖）。sound 开关在 Linux 上无效：
+ * 通知声音由桌面主题/系统设置控制，libnotify 无逐条覆盖接口。
+ * 导出仅供测试注入 node:child_process 后验证 argv 形态（test/）。
+ */
+export function notifyLinux(title: string, body: string): void {
+  if (findOnPath('notify-send') === null) return // 未装 libnotify：静默跳过
+  spawnNotifySend(notifySendArgs(title, body))
+}
+
+/**
  * 发一条系统通知。fire-and-forget：所有失败静默，不影响主流程。
- * 导出供组合器在防重叠探测翻转时发「已自动暂停/已恢复」提示。
- * @param title - 通知标题。
- * @param body - 通知正文。
- * @param openUrl - 点击通知要打开的 URL（浏览器会话 deep-link）；为空则不可点击。
+ * @param title - 通知标题（已本地化，见 notify-text.ts）。
+ * @param body - 通知正文（已单行化/截断）。
+ * @param openUrl - 点击通知要打开的 URL（浏览器会话 deep-link）；为空则不可点击
+ *                  （Linux 恒不可点击，见 notifyLinux）。
  * @param sound - 提示音开关（macOS：true=显式 Glass，false=跟随系统默认音；
- *                Windows：false=toast XML `<audio silent="true"/>` 真静音）。
+ *                Windows：false=toast XML `<audio silent="true"/>` 真静音；
+ *                Linux：忽略——声音由桌面主题控制）。
  */
 export function systemNotify(title: string, body: string, openUrl: string | undefined, sound: boolean): void {
   switch (PLATFORM) {
@@ -346,167 +390,11 @@ export function systemNotify(title: string, body: string, openUrl: string | unde
     case 'win32':
       notifyWindows(title, body, openUrl, sound)
       return
+    case 'linux':
+      notifyLinux(title, body)
+      return
     default:
       // 其他平台没有可靠的桌面通知入口：静默跳过（增益不是依赖）。
       return
   }
-}
-
-/**
- * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
- * 总开关与各事件开关，并做其他通知源（官方/生态）的防重叠探测。点击通知
- * 跳转浏览器对应会话（client 读 `#session=`，兼容旧的 `?session=`）。
- *
- * 防重叠（auto 策略）：监听器在 apply 时注册、随 fiber 卸载；每条事件进来
- * 先经 shouldNotify() 判定（配置 + 探测），auto 且探测到其他通知源即跳过
- * 自身通知——对用户可观察行为等价于动态注销，且事件低频、无性能顾虑。
- * 探测状态变化（false↔true）经 onProbeChange 回抛，由组合器发自动暂停/
- * 恢复的系统提示。探测失败静默（通知是增益不是依赖）。
- *
- * @param ctx - host context（含 settings 服务的 `notify` scope）。
- * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照；
- *                   追加探测候选 probeServices 也在这里，每次探测读取）。
- * @param baseUrl - 浏览器地址（默认 3080）。
- * @param onProbeChange - 探测状态变化回调（含首次探测）。
- */
-export function applySystemNotify(
-  ctx: Context,
-  configOf: () => NotifyConfig,
-  baseUrl: string | (() => string) = 'http://127.0.0.1:3080',
-  onProbeChange?: (state: ProbeState) => void,
-): void {
-  // 防重叠探测：惰性 + 状态缓存。lastProbe 记录最近结果，变化时回抛一次。
-  // onProbeChange 回调自带 try/catch：观察方异常不得冒泡（probeNow 早于
-  // safe 定义被首次调用，不能依赖后者）。
-  let lastProbe: ProbeState = { official: false }
-  const probeNow = (): ProbeState => {
-    const state = probeOfficialNotify(ctx as unknown as { get(name: string): unknown }, configOf().probeServices)
-    if (state.official !== lastProbe.official || state.source !== lastProbe.source) {
-      lastProbe = state
-      try { onProbeChange?.(state) } catch { /* 观察失败静默 */ }
-    }
-    return state
-  }
-  // 是否应发自身通知：总开关 + 冲突策略（mine 忽略探测；auto 探测到即停）。
-  const shouldNotify = (): boolean => {
-    const cfg = configOf()
-    if (!cfg.enabled) return false
-    if (cfg.overlap === 'mine') return true
-    return !probeNow().official
-  }
-  // 首次探测：初始化状态（onProbeChange 首次回抛，让组合器尽早拿到状态）。
-  // configOf 读取失败（scope 未就绪等）静默——通知是增益不是依赖。
-  try { probeNow() } catch { /* 配置读取失败静默 */ }
-  const sessionOpenUrl = (sessionId: string): string => {
-    const base = typeof baseUrl === 'function' ? baseUrl() : baseUrl
-    // rc.1 起 web 界面默认启用进程 token 鉴权（本机 127.0.0.1 同样 401）：
-    // 直接打开 `/?session=` 在浏览器无 cookie 时会撞认证墙。这里用官方
-    // authenticatedUrl 带上进程 token，session 改走 `#` fragment——token 交换
-    // 的 303 重定向会保留 fragment（RFC 7231 §7.1.2），client 读 hash 即可
-    // 完成「首次认证 + 会话跳转」二合一；已认证浏览器直接命中同一 fragment。
-    // connection 服务缺失时降级为旧的无 token URL（行为与以前一致）。
-    const connection = (ctx as Context & { connection?: HostConnectionHandle }).connection
-    try {
-      const authenticated = connection?.authenticatedUrl(base) ?? base
-      return `${authenticated}#session=${encodeURIComponent(sessionId)}`
-    } catch {
-      return `${base}/?session=${encodeURIComponent(sessionId)}`
-    }
-  }
-  // 启动即清扫一次残留：上次宿主崩溃（脚本自删与 30s 定时器都来不及）留下的
-  // 陈旧 .ps1 在这里清掉，不必等下一次 win32 通知（见 pruneStalePs1Scripts）。
-  if (PLATFORM === 'win32') pruneStalePs1Scripts()
-  /** 通知是增益不是依赖：任何处理器内的异常都不允许冒泡进事件总线。 */
-  const safe = (run: () => void): void => {
-    try {
-      run()
-    } catch {
-      /* 观察失败静默 */
-    }
-  }
-
-  // 轮次完成：agent 从 running 回到 idle，同一 agent 5s 内只发一条，
-  // 避免 HMR/会话快速重载等场景下连发多条刷屏。
-  const TURN_DEDUP_MS = 5_000
-  // 通知正文最大长度（超出截断加 …），保持 toast/横幅美观统一。
-  const NOTIFY_BODY_MAX = 80
-  const lastTurnAt = new Map<string, number>()
-  ctx.on(NOTIFY_EVENTS.turnDone, (payload) => {
-    safe(() => {
-      if (!shouldNotify()) return
-      if (payload.status !== 'idle') return
-      if (isSubagent(payload.agent)) return
-      const cfg = configOf()
-      if (!cfg.enabled || !cfg.turn) return
-      const now = Date.now()
-      pruneExpired(lastTurnAt, now, TURN_DEDUP_MS)
-      if (now - (lastTurnAt.get(payload.agent.id) ?? 0) < TURN_DEDUP_MS) return
-      lastTurnAt.set(payload.agent.id, now)
-      // 多会话并行时固定文案无法区分来源：正文拼上模型名（AgentOptions，
-      // 取不到回落固定文案，绝不抛错——见 agentModelLabel）。
-      const label = agentModelLabel(payload.agent)
-      const body = label !== undefined ? `「${label}」已回复，可以切回查看` : '该会话已结束一轮，可以切回查看'
-      systemNotify('轮次完成', body, sessionOpenUrl(payload.agent.id), cfg.sound)
-    })
-  }, { global: true })
-  // 审批请求：waterfall 事件，只观察必须 next() 委托。通知体包 try/catch——
-  // configOf 或属性访问一旦同步抛出，next() 不执行会否决整条链（卡死审批流）。
-  ctx.on(NOTIFY_EVENTS.approval, (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome> => {
-    try {
-      if (!shouldNotify()) return next()
-      const cfg = configOf()
-      if (!isSubagent(req.agent) && cfg.enabled && cfg.approval) {
-        // toolName 运行时可能缺失（宿主协议旧版/畸形 payload）：`${undefined}`
-        // 会展示成字面 "undefined"，缺失时用可读兜底文案。
-        const toolName = req.toolName ?? '待审批操作'
-        const detail = req.reason !== undefined && req.reason !== ''
-          ? `${toolName} · ${req.reason}`
-          : toolName
-        // 正文拼上模型名（approval/request 的 payload 是 ApprovalRequestEvent，
-        // agent 字段与 agent/status 同为 Agent，读 options.model/provider）。
-        const label = agentModelLabel(req.agent)
-        systemNotify('需要审批', summaryOf(label !== undefined ? `${label} · ${detail}` : detail, NOTIFY_BODY_MAX), sessionOpenUrl(req.agent.id), cfg.sound)
-      }
-    } catch { /* 通知是增益不是依赖：观察失败不阻断审批链 */ }
-    return next()
-  }, { global: true })
-  // 错误：受总开关 + error 子开关控制。去重键是 agent id + 消息指纹——
-  // 同一会话的同一错误 30s 内只发一条避免刷屏，但用户修复后出现的
-  // 不同错误在同一窗口内仍会各自通知（不被旧去重键吞掉）。
-  // 每次事件先清理已过期条目，防止长期运行后无界增长（见 pruneExpired）。
-  const ERROR_DEDUP_MS = 30_000
-  const lastErrorAt = new Map<string, number>()
-  ctx.on(NOTIFY_EVENTS.error, (payload) => {
-    safe(() => {
-      if (!shouldNotify()) return
-      if (isSubagent(payload.agent)) return
-      const cfg = configOf()
-      if (!cfg.enabled || !cfg.error) return
-      const now = Date.now()
-      // 解析边界：Error 实例优先 message；空 message 回退 name；非 Error 原样输出；
-      // 完全缺失兜底「未知错误」。绝不抛（safe 内）。
-      const detail = payload.error instanceof Error
-        ? payload.error.message || payload.error.name || '未知错误'
-        : String(payload.error ?? '未知错误')
-      const key = errorDedupKey(payload.agent.id, detail)
-      pruneExpired(lastErrorAt, now, ERROR_DEDUP_MS)
-      if (now - (lastErrorAt.get(key) ?? 0) < ERROR_DEDUP_MS) return
-      lastErrorAt.set(key, now)
-      // 正文拼上模型名区分来源（agent/error 的 payload 同为 Agent）。
-      const label = agentModelLabel(payload.agent)
-      systemNotify('Agent 出错', summaryOf(label !== undefined ? `${label} · ${detail}` : detail, NOTIFY_BODY_MAX), sessionOpenUrl(payload.agent.id), cfg.sound)
-    })
-  }, { global: true })
-  // 会话完成：agent 被销毁即视为会话结束（与轮次完成区分开）。
-  ctx.on(NOTIFY_EVENTS.sessionDone, (payload) => {
-    safe(() => {
-      if (!shouldNotify()) return
-      if (isSubagent(payload.agent)) return
-      const cfg = configOf()
-      if (!cfg.enabled || !cfg.sessionDone) return
-      const label = agentModelLabel(payload.agent)
-      const body = label !== undefined ? `「${label}」已完成，可以切回查看` : '该会话已完成，可以切回查看'
-      systemNotify('会话完成', body, sessionOpenUrl(payload.agent.id), cfg.sound)
-    })
-  }, { global: true })
 }

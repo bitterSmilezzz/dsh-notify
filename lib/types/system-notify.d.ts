@@ -1,24 +1,4 @@
 import { type ChildProcess } from 'node:child_process';
-import type { Context } from '@deepseek-ai/cordis';
-import { type ProbeState } from './notify-policy.ts';
-/** 通知开关（与 settings schema 的 notify 子对象一致）。 */
-export interface NotifyConfig {
-    enabled: boolean;
-    approval: boolean;
-    turn: boolean;
-    sessionDone: boolean;
-    error: boolean;
-    /** 提示音：true=显式 Glass（macOS）/系统默认音（Windows）；false=跟随系统默认（macOS）/真静音（Windows）。 */
-    sound: boolean;
-    /**
-     * 与其他通知源（官方/生态）冲突时的策略：
-     *   - 'auto'（默认）：探测到其他通知源即跳过自身通知（防双份刷屏）；
-     *   - 'mine'：忽略探测结果，始终用自己的（主动双开，自负重复风险）。
-     */
-    overlap: 'auto' | 'mine';
-    /** 追加的候选探测 service 名（settings probeServices；每次探测时随 configOf() 读取，改配置即时生效）。 */
-    probeServices: readonly string[];
-}
 /** AppleScript 单行脚本：负载经 `--` argv 传入（on run argv）。
  *  导出仅供注入不变量测试（test/system-notify.test.mjs）钉住
  *  「负载走 argv、脚本体零插值」约束。 */
@@ -57,6 +37,16 @@ export declare function registerNotifierFallback(child: ChildProcess, onFallback
  */
 export declare function pruneStalePs1Scripts(dir?: string, now?: number, staleMs?: number): number;
 /**
+ * 在 PATH 中查找一个可执行文件，返回命中路径（找不到返回 null）。
+ * 纯查询：不 spawn、不做 shell 展开、不缓存。用于 Linux 侧判断
+ * notify-send 是否值得尝试（命令本身仍以字面量 spawn，见 spawnNotifySend）。
+ * @param name - 可执行文件名（不含路径分隔符）。
+ * @param pathEnv - PATH 变量值（默认 process.env.PATH）。
+ * @param exists - 存在性判定（注入便于测试；默认 node:fs existsSync）。
+ * @param separator - PATH 条目分隔符（注入便于测试；默认平台分隔符）。
+ */
+export declare function findOnPath(name: string, pathEnv?: string | undefined, exists?: (path: string) => boolean, separator?: string): string | null;
+/**
  * 构造传给 powershell.exe 的脚本命名参数 argv。
  *
  * 保持 `-Name value` 分离形式（含空格的值由 Node spawn 自动加引号、PowerShell
@@ -74,37 +64,37 @@ export declare function pruneStalePs1Scripts(dir?: string, now?: number, staleMs
  * 导出仅供测试钉住「`-` 前缀值加空格前缀」这一约束。
  */
 export declare function psNamedArgs(title: string, body: string, openUrl?: string): string[];
+/**
+ * 构造传给 notify-send 的 argv。
+ * 标题/正文是位置参数，若以 `-` 开头会被 GOption 解析成选项名——用 `--`
+ * 显式终止选项解析，负载再原样跟随。`-a DSH` 让通知来源显示为 DSH 而非
+ * 脚本名；`-t 10000` 让通知 10s 后自动消失（不堆积在通知中心）。
+ * 导出仅供测试钉住 argv 形态与 `--` 终止符。
+ */
+export declare function notifySendArgs(title: string, body: string): string[];
 /** macOS 通知：osascript 为主（稳定可靠，带系统声音）。terminal-notifier
  * 的点击跳转依赖已废弃的 NSUserNotification 私有图标 API（macOS 26 失效），
  * 仅在需要点击跳转且二进制存在时使用，作为 osascript 的补充。
  * 导出仅供测试注入 node:child_process/node:fs 后验证兜底链（test/）。 */
 export declare function notifyMac(title: string, body: string, openUrl: string | undefined, sound: boolean): void;
 /**
+ * Linux 通知：notify-send（libnotify；GNOME/KDE/XFCE 等桌面发行版普遍预装）。
+ * 展示型通知——notify-send 没有可靠的"点击回调"通道（-A 需进程长驻等待，
+ * 与 fire-and-forget 语义冲突），故 Linux 上通知不可点击；未安装
+ * notify-send 时静默跳过（增益不是依赖）。sound 开关在 Linux 上无效：
+ * 通知声音由桌面主题/系统设置控制，libnotify 无逐条覆盖接口。
+ * 导出仅供测试注入 node:child_process 后验证 argv 形态（test/）。
+ */
+export declare function notifyLinux(title: string, body: string): void;
+/**
  * 发一条系统通知。fire-and-forget：所有失败静默，不影响主流程。
- * 导出供组合器在防重叠探测翻转时发「已自动暂停/已恢复」提示。
- * @param title - 通知标题。
- * @param body - 通知正文。
- * @param openUrl - 点击通知要打开的 URL（浏览器会话 deep-link）；为空则不可点击。
+ * @param title - 通知标题（已本地化，见 notify-text.ts）。
+ * @param body - 通知正文（已单行化/截断）。
+ * @param openUrl - 点击通知要打开的 URL（浏览器会话 deep-link）；为空则不可点击
+ *                  （Linux 恒不可点击，见 notifyLinux）。
  * @param sound - 提示音开关（macOS：true=显式 Glass，false=跟随系统默认音；
- *                Windows：false=toast XML `<audio silent="true"/>` 真静音）。
+ *                Windows：false=toast XML `<audio silent="true"/>` 真静音；
+ *                Linux：忽略——声音由桌面主题控制）。
  */
 export declare function systemNotify(title: string, body: string, openUrl: string | undefined, sound: boolean): void;
-/**
- * 安装系统通知：注册事件监听（轮次完成/审批/错误），读 settings 配置判断
- * 总开关与各事件开关，并做其他通知源（官方/生态）的防重叠探测。点击通知
- * 跳转浏览器对应会话（client 读 `#session=`，兼容旧的 `?session=`）。
- *
- * 防重叠（auto 策略）：监听器在 apply 时注册、随 fiber 卸载；每条事件进来
- * 先经 shouldNotify() 判定（配置 + 探测），auto 且探测到其他通知源即跳过
- * 自身通知——对用户可观察行为等价于动态注销，且事件低频、无性能顾虑。
- * 探测状态变化（false↔true）经 onProbeChange 回抛，由组合器发自动暂停/
- * 恢复的系统提示。探测失败静默（通知是增益不是依赖）。
- *
- * @param ctx - host context（含 settings 服务的 `notify` scope）。
- * @param configOf - 读取当前通知配置（由组合器注入，scope.get() 快照；
- *                   追加探测候选 probeServices 也在这里，每次探测读取）。
- * @param baseUrl - 浏览器地址（默认 3080）。
- * @param onProbeChange - 探测状态变化回调（含首次探测）。
- */
-export declare function applySystemNotify(ctx: Context, configOf: () => NotifyConfig, baseUrl?: string | (() => string), onProbeChange?: (state: ProbeState) => void): void;
 //# sourceMappingURL=system-notify.d.ts.map

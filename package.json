@@ -1,6 +1,6 @@
 {
   "name": "@bittersmilezzz/dsh-notify",
-  "version": "0.1.14",
+  "version": "0.2.0",
   "description": "DeepSeek Harness 的系统级桌面通知：审批/轮次完成/会话完成/出错提醒，点击通知跳转对应会话；macOS/Windows 双平台。",
   "type": "module",
   "main": "lib/index.js",
@@ -24,7 +24,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.host.json && tsdown",
+    "build": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json && tsdown",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
@@ -78,10 +78,11 @@
     "@deepseek-ai/dsh-api-session-controller": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-connection": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-locale": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-renderer": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "^0.1.6-alpha.1",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-settings": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-user-approval": "^0.1.6-alpha.1",
@@ -90,6 +91,9 @@
     "react-dom": "^18.2.0"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-ui-plugin-manager": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-client-ui-primitives": {
       "optional": true
     },
@@ -109,10 +113,11 @@
     "@deepseek-ai/dsh-api-session-controller": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-connection": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-locale": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-renderer": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "^0.1.6-alpha.1",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-settings": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-user-approval": "^0.1.6-alpha.1",

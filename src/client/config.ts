@@ -8,7 +8,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the settings domain's Context merge (ctx.settingsScope).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
-/** 统一配置对象：与 host settings schema 结构一致。 */
+/** 统一配置对象：与 host settings schema 结构一致（字段漂移由测试钉住）。 */
 export interface NotifyConfig {
   enabled: boolean
   approval: boolean
@@ -16,8 +16,6 @@ export interface NotifyConfig {
   sessionDone: boolean
   error: boolean
   sound: boolean
-  /** 与其他通知源冲突策略：auto=探测到即停；mine=始终用自己的。 */
-  overlap: 'auto' | 'mine'
 }
 
 /** 配置默认值（与 host schema 的 default 一致）。 */
@@ -28,7 +26,6 @@ export const DEFAULTS: NotifyConfig = {
   sessionDone: true,
   error: true,
   sound: true,
-  overlap: 'auto',
 }
 
 /** 运行时配置快照：初始为默认值，scope 订阅与 setConfig 共同维护。 */
@@ -58,7 +55,7 @@ export function bindConfigScope(ctx: ClientContext): () => void {
     // 返回 null 时，不更新快照（保留默认值），也绝不抛错（订阅回调异常会
     // 冒泡到宿主事件分发，拖垮页面）。
     if (value != null && typeof value === 'object') {
-      // boolean 字段显式逐个写入；overlap 按字符串枚举写入，其余类型忽略
+      // boolean 字段显式逐个写入，其余类型忽略
       // （快照合并只接受权威源的合法形态，见 host schema）。
       const next = value as Partial<Record<keyof NotifyConfig, unknown>>
       if (typeof next.enabled === 'boolean') config.enabled = next.enabled
@@ -67,7 +64,6 @@ export function bindConfigScope(ctx: ClientContext): () => void {
       if (typeof next.sessionDone === 'boolean') config.sessionDone = next.sessionDone
       if (typeof next.error === 'boolean') config.error = next.error
       if (typeof next.sound === 'boolean') config.sound = next.sound
-      if (next.overlap === 'auto' || next.overlap === 'mine') config.overlap = next.overlap
       announce()
     }
   }

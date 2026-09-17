@@ -6,6 +6,59 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.2.0] - 2026-09-17
+
+### 新增
+
+- **Linux 平台支持**：`notify-send`（libnotify）展示型通知，未安装时静默跳过。
+  通知不可点击（notify-send 无可靠的点击回调通道），声音由桌面主题控制（本插件的声音
+  开关在 Linux 上无效）——两者都在 README 与设置卡片文案里写明。
+- **通知文案本地化**：host 侧通知标题/正文跟随官方 locale 设置的偏好（设置 → 通用 → 语言），
+  中文/英文双语；读不到偏好时回落中文（此前一律硬编码中文，英文界面用户收到中文通知）。
+- **正文带会话标题**：优先官方 `sessionTitle` 服务折叠出的会话标题，无标题时回落模型名
+  （此前正文只有模型名，多会话并行时无法分辨是哪一个会话）。
+- **聚焦抑制（分级）**：浏览器半区经官方 Connection RPC 通道（`/dsh-notify`）上报页面可见性，
+  host 在页面可见时抑制「轮次完成 / 会话完成」这类非阻塞通知；「审批 / 出错」始终送达
+  （审批是阻塞性的，官方审批 UI 只在对应会话内出现）。上报可见时每 30s 续期，host 侧
+  75s 保鲜期兜底——页面崩溃/断连后最多 75s 恢复通知（宁可多通知，不可静默失效）。
+- **设置卡片双契约注册**：同时注册旧 `settings.plugin.item`（设置 → 插件 → 配置）与新
+  `plugins.bundle.config`（插件详情页，`view: 'summary' | 'page'`）两代官方 slot 契约——
+  DSH 0.1.6 期间换过插件配置架构，只注册一个会让卡片在其中一代运行时里彻底消失。
+
+### 变更（破坏性）
+
+- **移除防重叠探测机制（`overlap` / `probeServices`）**：实测该机制探测的 6 个 cordis
+  service 名（`notification` / `notifications` / `notifyCenter` / `desktopNotify` /
+  `systemNotify` / `toast`）在官方 251 个包中零命中，探测名单纯属命名猜测；而一旦误命中
+  （第三方插件恰好注册同名 service），本插件会**静默停止通知**（只弹一次提示）——这是
+  通知类插件最糟的失败模式。移除探测逻辑、两个配置项与设置卡片对应行（老配置里残留的
+  字段被 schemastery 原样保留，不影响解析，但不再有任何作用）。
+- **设置卡片视觉对齐官方组件层**：卡片描边 `0.5px border-l4`、圆角 16px、悬停与打开态
+  换描边/背景、头部 `focus-visible` 轮廓、正文分隔线 `0.5px border-l2`；折叠箭头改用官方
+  `IconChevronDownOutline14`（此前自绘 svg）；次要按钮改 outline 形态（对齐官方卡片内
+  按钮）；错误色改用真实存在的 `--dsw-alias-label-error`（此前用的是**不存在**的
+  `--dsw-alias-state-danger-fill`，恒走硬编码 fallback 色）。
+- 折叠头补官方同款无障碍名（`展开设置/收起设置: <标题>`）。
+
+### 修复
+
+- 设置卡片文案 `masterDesc` 此前称「macOS 需已装 terminal-notifier」，与实现不符
+  （osascript 为主、terminal-notifier 只影响可点击跳转），会误导用户以为没装就收不到通知；
+  已改为按平台说明（macOS 可点击需 terminal-notifier；Linux 仅展示）。
+- `README` 补齐此前缺失的 overlap/probeServices 说明（该机制已移除），并补全平台矩阵、
+  权限披露与已知风险。
+- `CHANGELOG` 0.1.10 对 overlap 的描述（「检测到屏幕已被其他应用独占（如全屏演示、投屏）时
+  自动暂停」）与实现（探测 cordis service 名）完全不符——本版移除该机制，描述错位一并终结。
+
+### 工程
+
+- host 侧按职责拆分：`notify-events.ts`（事件编排）、`notify-text.ts`（文案）、
+  `presence.ts`（聚焦状态机）、`system-notify.ts`（平台通道）、`notify-policy.ts`（纯策略）；
+  原先单文件 512 行的 `system-notify.ts` 同时承载四类职责。
+- 新增回归测试覆盖：文案字典 zh/en key 一致性、`notifyTextOf` 回落、聚焦状态机与上报协议、
+  Linux `notify-send` argv 与 PATH 探测、Windows toast 全路径（argv/静默 env/兜底清理）、
+  host↔client 配置字段一致性、卡片双契约注册。
+
 ## [0.1.14] - 2026-09-16
 
 ### 变更
@@ -93,7 +146,8 @@
   `authenticatedUrl`，并把会话 ID 放进 `#session=` fragment，首次点击自动种 cookie，
   解决带鉴权后通知点击落不到目标会话的问题。
 
-[未发布]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.11...HEAD
+[未发布]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.14...v0.2.0
 [0.1.11]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/bitterSmilezzz/dsh-notify/releases/tag/v0.1.9
