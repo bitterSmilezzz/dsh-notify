@@ -4,19 +4,16 @@
  * 组合：设置卡片、通知声音、点通知跳会话 deep-link、聚焦上报。
  * 配置由 host settings 服务持有（config.ts）。
  *
- * 设置卡片注册两代官方契约（DSH 0.1.6 期间换过插件配置架构，见
- * settings-card.tsx）：`settings.plugin.item`（旧：设置 → 插件 → 插件配置）
- * 与 `plugins.bundle.config`（新：插件详情页）。两个 slot 都用 `slots.inject`
- * 注册——未声明该 slot 的部署里 inject 只是等待，不会报错，因此双注册在
- * 新旧运行时下都安全。
+ * 设置卡片注册到官方 `plugins.bundle.config` 契约（插件详情页）。旧契约
+ * `settings.plugin.item` 已在 dsh 0.1.6-alpha.2 退役（commit 90af3110b7），
+ * 不再注册（见 settings-card.tsx）。用 `slots.inject` 注册——未声明该 slot
+ * 的部署里 inject 只是等待，不会报错。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the ui-renderer Context merge (ctx.slots), moved here in dsh-settings alpha.2.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the settings slot merges (settings.general.item / settings.plugins.tab).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-// Type-only: pulls the ui-settings-plugins SlotMap merge (the settings.plugin.item card seat).
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // Type-only: pulls the plugin-manager SlotMap merge (the plugins.bundle.config seat).
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -32,13 +29,13 @@ import { applyPresenceReporting } from './presence.ts'
 
 export { zh, en }
 
-/** 设置 namespace（host settings 的 `notify`，旧契约的 slot key 同此）。 */
+/** 设置 namespace（host settings 的 `notify`）。 */
 const NS = 'notify'
 
-/** 包名（新契约 `plugins.bundle.config` 的 key：bundle 的 package name）。 */
+/** 包名（`plugins.bundle.config` 的 key：bundle 的 package name）。 */
 const PACKAGE_NAME = '@bittersmilezzz/dsh-notify'
 
-/** 卡片 occupant 的 owner props（两代契约的并集：view 仅新契约提供）。 */
+/** 卡片 occupant 的 owner props（view 由插件详情页传入）。 */
 interface NotifyCardOwnerProps {
   view?: NotifyCardView | undefined
 }
@@ -66,14 +63,7 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const card = (props: NotifyCardOwnerProps) => jsxRuntime.jsx(NotifySettingsCard, { t, view: props?.view })
 
-  // 设置卡片（旧契约：settings.plugin.item，keyed by settings namespace）
-  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-    name: 'settings.plugin.item',
-    key: NS,
-    locale: NS,
-  }, card))
-
-  // 设置卡片（新契约：plugins.bundle.config，keyed by package name；
+  // 设置卡片（plugins.bundle.config，keyed by package name；
   // 渲染在插件详情页，owner 传 view: 'summary' | 'page'）
   ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
     name: 'plugins.bundle.config',

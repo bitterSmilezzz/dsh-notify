@@ -5,9 +5,9 @@
  *     `aria-checked`）。这条钉子防的是「又冒出一个自绘
  *     `input[type=checkbox][role=switch]`」——0.1.14 之前「音效」行正是这种
  *     残留，与官方组件层重叠。
- *  2) 卡片同时注册两代官方 slot 契约（旧 `settings.plugin.item`、新
- *     `plugins.bundle.config`），且两个注册共用同一组件——DSH 0.1.6 期间换过
- *     插件配置架构，只注册一个会让卡片在其中一代运行时里彻底消失。
+ *  2) 卡片注册官方 `plugins.bundle.config` 契约（插件详情页），且不再注册旧
+ *     `settings.plugin.item`（DSH 0.1.6-alpha.2 起退役，commit 90af3110b7）——
+ *     旧座位名回流会让类型编译直接失败，这条钉子把「删干净」钉住。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -55,15 +55,16 @@ test('设置卡片：音效行由官方 Switch 承载，且仍写回 config.soun
   assert.match(soundRow, /label=\{t\('notifySound'\)\}/, '无障碍名仍由本地化词条提供')
 })
 
-test('设置卡片：同时注册旧 settings.plugin.item 与新 plugins.bundle.config 两代契约', () => {
-  assert.match(entry, /slots\.inject\('settings\.plugin\.item'/, '旧契约（设置 → 插件 → 插件配置）必须注册')
-  assert.match(entry, /name: 'settings\.plugin\.item'/)
-  assert.match(entry, /key: NS/, '旧契约的 key 是 settings namespace')
+test('设置卡片：注册 plugins.bundle.config 契约，旧 settings.plugin.item 不得回流', () => {
+  assert.doesNotMatch(
+    entry,
+    /slots\.inject\('settings\.plugin\.item'/,
+    '旧契约（设置 → 插件 → 插件配置）已在 alpha.2 退役，不得再注册',
+  )
   assert.match(entry, /slots\.inject\('plugins\.bundle\.config'/, '新契约（插件详情页）必须注册')
   assert.match(entry, /name: 'plugins\.bundle\.config'/)
   assert.match(entry, /key: PACKAGE_NAME/, '新契约的 key 是 bundle 的 package name')
-  // 两个注册必须共用同一个 occupant（行为一致，避免两条渲染路径漂移）。
-  assert.match(entry, /const card = \(props: NotifyCardOwnerProps\)/, '两个注册共用 card occupant')
+  assert.match(entry, /const card = \(props: NotifyCardOwnerProps\)/, 'card occupant 仍是唯一注册入口')
 })
 
 test('设置卡片：新契约的 view 分支齐备（summary 一行 / page 表单 / 无 view 走旧外壳）', () => {
