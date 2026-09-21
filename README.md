@@ -5,7 +5,7 @@ DeepSeek Harness (DSH) 的**系统级桌面通知（Desktop Notifications）**�
 ## 功能
 
 - **四类事件分别开关**：审批（approval/request）、轮次完成（agent idle）、会话完成（agent/disposed）、Agent 出错（agent/error，同会话 30s 去重）
-- **总开关 + 声音开关**；通知音效为 Web Audio 合成，设置卡片可试听
+- **总开关 + 声音开关**；通知提示音走系统通道（macOS Glass / Windows toast 音），设置卡片提供 Web Audio 试听
 - **通知文案跟随界面语言**：读官方 locale 设置的偏好（设置 → 通用 → 语言），中文/英文双语；未设置时用中文
 - **正文带会话身份**：优先会话标题（官方 `sessionTitle` 服务），无标题时回落模型名——多会话并行时能分辨是哪一个
 - **聚焦抑制（分级）**：浏览器页面可见时，「轮次完成 / 会话完成」这类非阻塞通知不再打扰；「审批 / 出错」始终送达（审批是阻塞性的，官方审批 UI 只在对应会话内出现，用户在看别的会话时看不到）
@@ -27,10 +27,12 @@ dsh plugin --profile <profile> add github:bitterSmilezzz/dsh-notify
 dsh plugin --profile <profile> add <path-to-repo>
 ```
 
-启用后开关在设置里的**桌面通知**卡片（settings namespace `notify`）。卡片注册了两代官方契约，位置随 DSH 版本而定：
+启用后开关在**桌面通知**卡片（settings namespace `notify`）。卡片注册到官方
+`plugins.bundle.config` 契约，位置在：侧边栏 **Plugins** 面板 → 本插件 → **配置表单**。
 
-- **旧版 DSH**（`settings.plugin.item`）：设置 → 插件 → 配置 → 桌面通知（折叠卡片）
-- **新版 DSH**（`plugins.bundle.config`）：侧边栏 Plugins 面板 → 本插件 → 配置表单
+> DSH 0.1.6-alpha.2 之前的旧契约 `settings.plugin.item`（设置 → 插件 → 配置）
+> 已被上游退役（commit `90af3110b7`），本插件自 0.2.1 起只注册新契约；更早的
+> DSH 版本会退化为自绘折叠外壳兜底。
 
 **安装/升级插件后需重启 web profile 生效；开关调整即时生效（拨动即写，无需保存），无需重启。**
 

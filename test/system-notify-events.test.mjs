@@ -20,8 +20,12 @@ cp.spawn = (cmd, args, opts) => {
   spawned.push({ cmd, args, opts, child })
   return child
 }
-/** 恒走 osascript 兜底分支：args 形态稳定可断言（[-e, script, '--', title, body]）。 */
-fs.existsSync = () => false
+/** 恒走 osascript 兜底分支：args 形态稳定可断言（[-e, script, '--', title, body]）。
+ *  `tnProbe` 开关可临时切到 terminal-notifier 分支（文末 inject 契约钉子断言 -open 深链）：
+ *  node:fs 的 ESM 具名导入在 import 时一次性绑定，替身必须保持同一函数引用、
+ * 内部读可变闭包变量才能让「import 之后再切换」生效。 */
+let tnProbe = false
+fs.existsSync = (p) => tnProbe && p === '/opt/homebrew/bin/terminal-notifier'
 
 const mod = await import('../src/notify-events.ts')
 const { applySystemNotify } = mod
@@ -41,15 +45,29 @@ const fullConfig = {
  * 假 ctx：记录 on 注册的 handler、inject 的 scoped 注册、可注入的 service。
  * @param services - ctx.get(name) 的返回值表（sessionTitle 替身等）。
  * @param describe - ctx.settings.describe() 的返回（locale 偏好等）。
+ * @param declaredInjects - 本 fiber 在 inject 数组里声明的 service 名（模拟 Cordis 代理）。
  */
-function makeHarness(services = {}, describe = () => []) {
+function makeHarness(services = {}, describe = () => [], declaredInjects = ['settings']) {
   const handlers = new Map()
   const injections = []
+  // 复刻 Cordis 的 traceable proxy 语义（cordis lib/index.js ReflectService.handler.get）：
+  // 读未声明的 service 属性抛 `cannot get property "<name>" without inject`，
+  // 从而让「忘记 ctx.get、直接属性访问」这类 bug 在测试里现形。
   const ctx = {
     get: (name) => services[name],
     on: (event, handler) => { handlers.set(event, handler); return () => handlers.delete(event) },
     inject: (deps, callback) => { injections.push({ deps, callback }); return {} },
     settings: { describe },
+  }
+  for (const name of Object.keys(services)) {
+    if (declaredInjects.includes(name)) {
+      Object.defineProperty(ctx, name, { value: services[name], configurable: true })
+    } else {
+      Object.defineProperty(ctx, name, {
+        get() { throw new Error(`cannot get property "${name}" without inject`) },
+        configurable: true,
+      })
+    }
   }
   return { ctx, handlers, injections }
 }
@@ -257,4 +275,65 @@ test('error 去重: 不同 agent 的同内容错误各自通知', () => {
   emitError('a1', 'TypeError: x')
   emitError('a2', 'TypeError: x')
   assert.equal(spawned.length, 2, 'agent 是去重键的一部分')
+})
+
+// ── Cordis inject 契约钉子（2026-09-21 P0 回归）──
+// 背景：host fiber 的 inject 只有 ['settings']，connection/webServer/sessionTitle
+// 都是可选能力、一律 ctx.get 惰性读取（src/index.ts:15-17 注释自述的架构）。
+// 曾经的 bug：sessionOpenUrl 用 `ctx.connection` 属性访问，Cordis 的 traceable
+// proxy 对未声明属性抛 `cannot get property "connection" without inject`
+// （cordis lib/index.js ReflectService.handler.get），且抛点在 try 之外 →
+// 被 handler 外层的 safe() 静默吞掉 → 四类通知一条都不发。
+// makeHarness 现在按 declaredInjects 复刻该契约：未声明的 service 属性访问即抛错。
+
+test('inject 契约: connection 未声明时四类事件仍全部通知（不得静默失效）', () => {
+  spawned.length = 0
+  const { ctx, handlers } = makeHarness() // 默认 declaredInjects = ['settings']
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  assert.equal(spawned.length, 1, 'turnDone 必须发出（曾因 ctx.connection 抛错全灭）')
+  handlers.get(NOTIFY_EVENTS.sessionDone)({ agent: agent('a2', 'deepseek-chat') })
+  assert.equal(spawned.length, 2, 'sessionDone 必须发出')
+  handlers.get(NOTIFY_EVENTS.error)({ agent: agent('a3', 'deepseek-chat'), turn: 1, step: 1, error: new Error('boom') })
+  assert.equal(spawned.length, 3, 'error 必须发出')
+  // approval 是 waterfall：通知 + next() 委托都要成立。
+  handlers.get(NOTIFY_EVENTS.approval)({ agent: agent('a4', 'deepseek-chat'), toolName: '执行命令' }, async () => 'allowed-once')
+    .then((out) => {
+      assert.equal(out, 'allowed-once')
+      assert.equal(spawned.length, 4, 'approval 必须发出')
+    })
+})
+
+test('inject 契约: connection 可用时深链带进程 token（authenticatedUrl + #session fragment）', () => {
+  spawned.length = 0
+  const connection = { authenticatedUrl: (base) => `${base}/?token=proc-token-abc` }
+  const { ctx, handlers } = makeHarness({ connection }, () => [], ['settings', 'connection'])
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  // 探针 terminal-notifier 分支：argv 里 -open 的值就是深链 URL（osascript 兜底不带 URL）。
+  tnProbe = true
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  tnProbe = false
+  assert.equal(spawned.length, 1)
+  const argv = spawned[spawned.length - 1].args
+  const openAt = argv.indexOf('-open')
+  assert.ok(openAt >= 0, 'terminal-notifier 路径必须带 -open')
+  const url = argv[openAt + 1]
+  assert.ok(url.includes('token=proc-token-abc'), 'token 鉴权 URL：浏览器无 cookie 也能打开')
+  assert.ok(url.includes('#session=a1'), 'session 走 fragment（303 重定向保留，RFC 7231 §7.1.2）')
+})
+
+test('inject 契约: connection 服务抛异常时降级为无 token URL，通知仍发出', () => {
+  spawned.length = 0
+  const connection = { authenticatedUrl: () => { throw new Error('connection not ready') } }
+  const { ctx, handlers } = makeHarness({ connection }, () => [], ['settings', 'connection'])
+  applySystemNotify(ctx, () => fullConfig, 'http://127.0.0.1:3080')
+  tnProbe = true
+  handlers.get(NOTIFY_EVENTS.turnDone)({ agent: agent('a1', 'deepseek-chat'), status: 'idle' })
+  tnProbe = false
+  assert.equal(spawned.length, 1, 'authenticatedUrl 失败也必须通知（降级路径）')
+  const argv = spawned[spawned.length - 1].args
+  const openAt = argv.indexOf('-open')
+  const url = openAt >= 0 ? argv[openAt + 1] : ''
+  assert.ok(url.startsWith('http://127.0.0.1:3080'), '降级回无 token 基址')
+  assert.ok(!url.includes('token='), '降级 URL 不含 token')
 })

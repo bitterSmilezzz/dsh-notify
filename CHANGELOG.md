@@ -7,6 +7,29 @@
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
 ## [0.2.0] - 2026-09-17
+## [未发布]
+
+### 修复
+
+- **修复 host 侧四类通知全部静默失效（P0）**：`sessionOpenUrl` 用 `ctx.connection` 属性访问
+  connection 服务，而本 fiber 的 `inject` 只有 `['settings']`——Cordis 的 traceable proxy 对
+  未声明的 service 属性抛 `cannot get property "connection" without inject`，且抛点在
+  `try` 之外，被 handler 外层的 `safe()` 静默吞掉 → 轮次完成 / 审批 / 出错 / 会话完成
+  一条都不发。改为 `ctx.get('connection')`（无 inject 要求，与官方 dsh-web-app 读 webServer
+  同款）；测试 harness 同步复刻 Cordis 的 inject 契约（未声明 key 的属性访问即抛错），
+  并新增 3 条钉子断言「inject 不含 connection 时四类事件仍全部通知」。
+- **会话完成通知不再带失效深链**：`agent/disposed` 后 session 已从列表快照移除，点击通知
+  时 client deep-link 会等满 15s 超时仍打不开，反而像「点击失灵」。该通知改为不可点击
+  （会话已销毁，跳过去也没有可打开的对象）。
+
+### 变更
+
+- 适配 DSH 0.1.6-alpha.2：删除已退役的 `settings.plugin.item` 契约注册，只保留官方
+  `plugins.bundle.config`（0.2.0 的「双契约注册」条目由本条目取代）；`view` 缺省时仍保留
+  自绘折叠外壳兜底。
+- README 修正「通知音效为 Web Audio 合成」的说法：提示音走系统通道（macOS Glass /
+  Windows toast 音），Web Audio 只服务设置卡片试听。
+
 
 ### 新增
 
