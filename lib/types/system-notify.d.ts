@@ -24,16 +24,24 @@ export declare const POWERSHELL_TOAST_PS1: string;
  * 验证「exit 非 0 → 兜底 + 防双发」（test/system-notify-fallback.test.mjs）。
  */
 export declare function registerNotifierFallback(child: ChildProcess, onFallback?: () => void): void;
+/** 陈旧 .ps1 判定阈值（导出供测试与诊断断言契约）。 */
+export declare const PS_STALE_MS = 60000;
+/** 清扫的最小间隔：清扫的目的是「宿主崩溃后残留不累积」，而残留要 PS_STALE_MS
+ *  才会被判陈旧——所以清扫频率远低于通知频率纯属浪费（每条 Windows 通知都
+ *  readdir 整个 tmpdir，其他应用残留多时是可感知的同步 I/O 抖动）。
+ *  取 PS_STALE_MS 的一半：即使刚扫完 30s 又来一条通知，最坏情况也只是让某个
+ *  残留多活 30s，不影响「不累积」的目标。 */
+export declare const PS_PRUNE_INTERVAL_MS: number;
 /**
  * 清扫 tmpdir 里陈旧的 `dsh-notify-*.ps1` 残留。主清理路径是脚本自身
  * finally 自删 + JS 30s 定时器，但它们都在宿主进程存活时才能生效；宿主
  * 整体崩溃时这两条路径都会失效，残留只能靠下一次写入前清扫兜住。
- * 每次写入新脚本前调用（低频：只有 win32 通知才会触发），把超过
- * PS_STALE_MS 的旧文件删掉，防止长期运行 / 多次崩溃后 /tmp 累积。
+ * 写入新脚本前调用（带 PS_PRUNE_INTERVAL_MS 节流），把超过 PS_STALE_MS 的
+ * 旧文件删掉，防止长期运行 / 多次崩溃后 /tmp 累积。
  * @param dir - 扫描目录（默认系统临时目录；注入便于测试）。
  * @param now - 当前时间戳（注入便于测试）。
  * @param staleMs - 视为残留的 mtime 阈值。
- * @returns 删除的文件数。
+ * @returns 删除的文件数（被节流跳过时返回 0）。
  */
 export declare function pruneStalePs1Scripts(dir?: string, now?: number, staleMs?: number): number;
 /**

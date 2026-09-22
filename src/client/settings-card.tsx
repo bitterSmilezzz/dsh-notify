@@ -167,6 +167,13 @@ function LegacyCardShell({ t, children }: { t: LocaleT; children: react.ReactNod
  *   - `view: 'summary'`：插件详情页上的一行摘要；
  *   - `view: 'page'`：插件详情页里的配置表单（官方页面已画标题）；
  *   - 无 `view`：自绘折叠外壳兜底（更早的运行时）。
+ *
+ * ⚠ `view: 'summary'` 当前**不可达**：官方 PluginManagerPage 对
+ * `plugins.bundle.config` 只以 `view: 'page'` 渲染（summary 只用于
+ * `plugins.item` 座位）。保留它是防御性的（官方哪天在插件列表页也渲染本座位的
+ * 摘要，这里就不用改代码），但**不要为它单独维护文案**——`masterDesc` 同时被
+ * 无 view 的折叠外壳使用，不会变成死词条。
+ *
  * @param props.t - locale 绑定（闭包传入）。
  * @param props.view - 插件详情页传入的视图选择。
  */

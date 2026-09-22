@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const mod = await import('../src/system-notify.ts')
-const { OSASCRIPT_NOTIFY, OSASCRIPT_NOTIFY_DEFAULT_SOUND, POWERSHELL_TOAST_PS1, pruneStalePs1Scripts, psNamedArgs } = mod
+const { OSASCRIPT_NOTIFY, OSASCRIPT_NOTIFY_DEFAULT_SOUND, POWERSHELL_TOAST_PS1, pruneStalePs1Scripts, psNamedArgs, PS_STALE_MS, PS_PRUNE_INTERVAL_MS } = mod
 
 test('AppleScript 模板：标题/正文经 argv 传入（on run argv），脚本本体零插值', () => {
   for (const script of [OSASCRIPT_NOTIFY, OSASCRIPT_NOTIFY_DEFAULT_SOUND]) {
@@ -76,4 +76,14 @@ test('pruneStalePs1Scripts: 只删超龄的 dsh-notify-*.ps1，保留新文件�
 test('pruneStalePs1Scripts: 目录不存在 / 不可读时静默返回 0', () => {
   const gone = join(tmpdir(), `dsh-notify-missing-${Date.now()}`)
   assert.equal(pruneStalePs1Scripts(gone, Date.now(), 60_000), 0)
+})
+
+
+test('pruneStalePs1Scripts: 节流间隔是陈旧阈值的一半（残留不会无限累积）', () => {
+  // 契约断言而非行为断言：节流只作用于默认 tmpdir 路径（进程级时间戳），
+  // 在测试里驱动「两次默认路径调用」会依赖真实 tmpdir 内容、且首调用的
+  // 时间戳由其他用例决定——脆弱且无意义。这里钉住设计约束本身：
+  // 间隔 < 陈旧阈值，所以任何残留最多多活一个间隔就一定会被清掉。
+  assert.ok(PS_PRUNE_INTERVAL_MS < PS_STALE_MS, '节流间隔必须小于陈旧阈值，否则残留可能永远不被扫到')
+  assert.ok(PS_PRUNE_INTERVAL_MS > 0, '间隔为 0 等于不节流')
 })
