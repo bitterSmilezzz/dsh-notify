@@ -43,12 +43,12 @@ interface NotifyCardOwnerProps {
 export const inject = [
   'slots',
   'locale',
-  'settingsScope',
+  'configForms',
 ]
 
 export function apply(ctx: ClientContext): void {
-  // 配置权威源是 host settings 服务。
-  ctx.effect(() => bindConfigScope(ctx), 'dsh-notify: settings scope sync')
+  // 配置权威源是 host Config（DSH 0.1.7 profile-backed forms）。
+  ctx.effect(() => bindConfigScope(ctx), 'dsh-notify: config form sync')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-notify: dictionaries')
   ctx.effect(() => {
     const tag = document.createElement('style')

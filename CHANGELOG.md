@@ -6,6 +6,29 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [未发布]
+
+### 变更（破坏性）
+
+- **适配 DSH 0.1.7-rc.1 的设置架构迁移**（上游 `601d6761e4` profile-backed forms）：
+  host 半区原先的 `ctx.settings.register(namespace, schema)` **已被上游移除**
+  （`SettingsProvider` → `SettingsForms`，只剩 `configure/describe/update/replace/mutate`），
+  改为在入口模块顶层导出 `Config` + `apply(ctx, config)` 函数插件，配置由 Cordis 作为第二参
+  注入；client 半区的 `ctx.settingsScope.bind({namespace})` → `ctx.configForms.get(entryId)`。
+  **对使用者无行为影响**：六个开关（总开关 / 审批 / 轮次完成 / 会话完成 / 出错 / 音效）
+  的名称、默认值、点击即写的交互都不变，设置卡仍渲染在侧边栏 Plugins → 本插件 → 配置表单。
+- 依赖对齐：`@deepseek-ai/*` 全部 devDependencies 与 peerDependencies 抬到
+  `^0.1.7-rc.1`。旧版 peer range（`^0.1.6-alpha.2`）在 0.1.7 运行时下经 semver 判定仍兼容
+  （`includePrerelease`），但 0.1.7 起上游会强制校验插件 peer 并把不满足的整行 entry 禁用，
+  故一并抬齐。
+
+### 工程
+
+- Config schema 六个字段全部标 `.volatile()`：0.1.7 起没有 volatile 标记的 entry 不会进入
+  `describe()`，官方配置页与 client 写入会**静默失效**（无编译错、无运行错）。
+- 官方图标改名跟随：`IconChevronDownOutline14` → `IconChevronDownOutlineRegular`。
+- `cordis.patch.yml` 移除 `inject: [settings]`（settings 不再是 Cordis service）。
+
 ## [0.2.0] - 2026-09-17
 
 ### 新增

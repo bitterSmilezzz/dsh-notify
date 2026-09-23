@@ -31,9 +31,12 @@ function fieldsOf(block, pattern) {
   return [...block.matchAll(pattern)].map((m) => m[1]).sort()
 }
 
+// DSH 0.1.7 起 host 配置是入口模块顶层导出的 `export const Config = z.object({...})`
+// （profile-backed forms，entry id 即 namespace），不再是 apply 内的
+// `ctx.settings.register(ns, z.object({...}))`。
 const schemaFields = fieldsOf(
-  blockOf(hostIndex, /z\.object\(\{([\s\S]*?)\n\s*\}\)/, 'host settings schema'),
-  /^\s{4}(\w+):/gm,
+  blockOf(hostIndex, /export const Config = z\.object\(\{([\s\S]*?)\n\}\)/, 'host Config schema'),
+  /^\s{2}(\w+):/gm,
 )
 const interfaceFields = fieldsOf(
   blockOf(clientConfig, /export interface NotifyConfig \{([\s\S]*?)\n\}/, 'client NotifyConfig 接口'),

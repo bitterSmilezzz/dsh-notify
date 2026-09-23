@@ -21,6 +21,7 @@ import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-app
 import type {} from '@deepseek-ai/dsh-user-approval'
 // Type-only: pulls the @deepseek-ai/cordis Events merge (agent/status, agent/error).
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-settings'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import { errorDedupKey, isSubagent, NOTIFY_EVENTS, pruneExpired, sessionLabelOf, summaryOf } from './notify-policy.ts'
 import { notifyTextOf, type NotifyText } from './notify-text.ts'
@@ -105,7 +106,7 @@ export function applySystemNotify(
     }
     let preference: unknown
     try {
-      const descriptor = ctx.settings.describe().find((item) => item.ns === LOCALE_SETTINGS_NAMESPACE)
+      const descriptor = ctx.settings.describe().find((item: { ns: string }) => item.ns === LOCALE_SETTINGS_NAMESPACE)
       preference = (descriptor?.value as Record<string, unknown> | undefined)?.[LOCALE_PREFERENCE_FIELD]
     } catch {
       preference = undefined // settings 未就绪/读取失败：回落中文

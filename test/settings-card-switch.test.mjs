@@ -33,7 +33,7 @@ test('设置卡片：开关一律使用官方 Switch，不得残留自绘 input 
 test('设置卡片：折叠箭头用官方图标，不自绘 svg', () => {
   assert.match(
     card,
-    /import \{[^}]*\bIconChevronDownOutline14\b[^}]*\} from '@deepseek-ai\/dsh-client-ui-primitives'/,
+    /import \{[^}]*\bIconChevronDownOutlineRegular\b[^}]*\} from '@deepseek-ai\/dsh-client-ui-primitives'/,
     'chevron 必须用官方图标组件',
   )
   assert.doesNotMatch(card, /<svg\b/, '不得自绘 svg 图标（与官方组件层重叠）')

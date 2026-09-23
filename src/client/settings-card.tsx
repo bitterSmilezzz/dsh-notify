@@ -13,7 +13,7 @@
 import * as react from 'react'
 // Type-only: pulls the plugin-manager SlotMap merge (the plugins.bundle.config seat).
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
-import { IconChevronDownOutline14, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { config, setConfig } from './config.ts'
 import { playSound } from './sound.ts'
 import type { LocaleT } from './locale.ts'
@@ -155,7 +155,7 @@ function LegacyCardShell({ t, children }: { t: LocaleT; children: react.ReactNod
           <span className="dshn-name">{t('masterTitle')}</span>
           <span className="dshn-desc">{t('masterDesc')}</span>
         </span>
-        <IconChevronDownOutline14 className={'dshn-chevron' + (open ? ' dshn-open' : '')} />
+        <IconChevronDownOutlineRegular className={'dshn-chevron' + (open ? ' dshn-open' : '')} />
       </button>
       {open ? <div className="dshn-body">{children}</div> : null}
     </li>
