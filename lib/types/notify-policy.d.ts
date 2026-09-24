@@ -57,6 +57,27 @@ export declare function agentModelLabel(agent: unknown): string | undefined;
  */
 export declare function errorDedupKey(agentId: string, message: string): string;
 /**
+ * 本地化字典取词：`LocalizedText`（`{ en, [locale] }`，官方 locale.resolveText
+ * 同构）按当前语言的主子标签取，缺失回落 en，再缺失回落字典里第一个非空值。
+ * host 半区没有官方 LocaleFace（那是 client 侧服务），用等价策略自实现；
+ * 与官方一致地绝不抛错——畸形字典（null / 空值 / 非字符串值）一律继续回落。
+ *
+ * DSH rc.2 起审批事件带 `displayReason`（本地化提示文本，`reason` 是审计用
+ * 原始文本）：通知是给用户读的，应优先展示本地化版本。
+ * @param dict - displayReason 字典（运行时可能缺失或畸形）。
+ * @param preference - locale settings 的 preference 字段（如 `zh-CN`）。
+ */
+export declare function localizedTextOf(dict: unknown, preference: unknown): string | undefined;
+/**
+ * 审批通知正文取词：优先 `displayReason`（本地化提示，rc.2 新增），缺失时
+ * 回落 `reason`（审计用原始文本，旧版协议与只填 reason 的 asker 都走这条）。
+ * 返回 undefined 表示两者都不可用（调用方只展示 toolName）。
+ */
+export declare function approvalDetailOf(req: {
+    reason?: string;
+    displayReason?: unknown;
+} | null | undefined, preference: unknown): string | undefined;
+/**
  * 会话身份标签：优先会话标题（用户认得），回落 `options.model`（模型 id）。
  * 两者都是可选字符串——运行时旧版协议/畸形 payload 取不到一律返回
  * undefined，调用方回落固定文案，绝不抛错（通知是增益不是依赖）。

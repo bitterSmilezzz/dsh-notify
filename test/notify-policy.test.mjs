@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { agentModelLabel, errorDedupKey, isSubagent, NOTIFY_EVENTS, pruneExpired, sessionLabelOf, summaryOf } from '../lib/notify-policy.js'
+import { agentModelLabel, approvalDetailOf, errorDedupKey, isSubagent, localizedTextOf, NOTIFY_EVENTS, pruneExpired, sessionLabelOf, summaryOf } from '../lib/notify-policy.js'
 
 test('summaryOf: 空、undefined 与 null 归一为空串', () => {
   assert.equal(summaryOf(undefined), '')
@@ -165,4 +165,69 @@ test('errorDedupKey: 超长消息截断，键长有界', () => {
   const key = errorDedupKey('a1', 'x'.repeat(5000))
   assert.ok(key.length < 200, '键长不随消息长度无界增长')
   assert.equal(key, errorDedupKey('a1', 'x'.repeat(5000)), '截断不破坏确定性')
+})
+
+// ── 本地化字典取词（localizedTextOf，rc.2 displayReason）──
+
+test('localizedTextOf: 按语言主子标签取，缺失回落 en', () => {
+  const dict = { en: 'Run the command', zh: '执行命令', ja: 'コマンド実行' }
+  assert.equal(localizedTextOf(dict, 'zh-CN'), '执行命令', 'BCP47 偏好按主子标签匹配（官方 locale 同策略）')
+  assert.equal(localizedTextOf(dict, 'zh_TW'), '执行命令')
+  assert.equal(localizedTextOf(dict, 'ja'), 'コマンド実行')
+  assert.equal(localizedTextOf(dict, 'fr'), 'Run the command', '未知语言回落 en')
+  assert.equal(localizedTextOf(dict, undefined), 'Run the command', '偏好缺失回落 en')
+  assert.equal(localizedTextOf(dict, '   '), 'Run the command', '空白偏好回落 en')
+})
+
+test('localizedTextOf: 精确 locale 键优先于主子标签', () => {
+  const dict = { en: 'a', zh: 'b', 'zh-tw': 'c', 'zh-hant': 'd' }
+  assert.equal(localizedTextOf(dict, 'zh-TW'), 'c', '精确 locale 键命中时优先（键名统一小写后比较）')
+  assert.equal(localizedTextOf(dict, 'zh-Hant'), 'd')
+  assert.equal(localizedTextOf(dict, 'zh'), 'b', '无精确键时回落主子标签')
+  assert.equal(localizedTextOf(dict, 'ZH-tw'), 'c', '偏好大小写不敏感')
+})
+
+test('localizedTextOf: en 缺失时回落字典里第一个非空值', () => {
+  assert.equal(localizedTextOf({ zh: '执行命令' }, 'fr'), '执行命令', '无 en 的非空兜底')
+  assert.equal(localizedTextOf({ zh: '', en: '' }, 'zh'), undefined, '全空 → undefined')
+})
+
+test('localizedTextOf: 畸形输入一律 undefined 不抛错', () => {
+  assert.equal(localizedTextOf(undefined, 'zh'), undefined)
+  assert.equal(localizedTextOf(null, 'zh'), undefined)
+  assert.equal(localizedTextOf('', 'zh'), undefined, '空串视作缺失')
+  assert.equal(localizedTextOf(42, 'zh'), undefined)
+  assert.equal(localizedTextOf({ en: 42 }, 'en'), undefined, '非字符串值视作缺失')
+  assert.equal(localizedTextOf({ en: null }, 'en'), undefined)
+})
+
+test('localizedTextOf: 纯字符串字典原样返回（LocalizedText 的 string 形态）', () => {
+  assert.equal(localizedTextOf('直接文本', 'zh'), '直接文本')
+  assert.equal(localizedTextOf('', 'zh'), undefined)
+})
+
+// ── 审批正文取词（approvalDetailOf，rc.2 displayReason 优先）──
+
+test('approvalDetailOf: displayReason 优先于 reason，取当前语言', () => {
+  const req = {
+    reason: 'audit: bash -lc "rm -rf /tmp/x"',
+    displayReason: { en: 'Delete build cache?', zh: '删除构建缓存？' },
+  }
+  assert.equal(approvalDetailOf(req, 'zh'), '删除构建缓存？', '通知是给用户读的：本地化文本优先')
+  assert.equal(approvalDetailOf(req, 'en'), 'Delete build cache?')
+  assert.equal(approvalDetailOf(req, 'fr'), 'Delete build cache?', '未知语言回落 en')
+})
+
+test('approvalDetailOf: displayReason 缺失/畸形时回落 reason（旧版协议兼容）', () => {
+  assert.equal(approvalDetailOf({ reason: 'needs approval', displayReason: undefined }, 'zh'), 'needs approval')
+  assert.equal(approvalDetailOf({ reason: 'needs approval', displayReason: {} }, 'zh'), 'needs approval', '空字典回落')
+  assert.equal(approvalDetailOf({ reason: 'needs approval', displayReason: { en: '' } }, 'zh'), 'needs approval', '空值回落')
+  assert.equal(approvalDetailOf({ reason: 'needs approval', displayReason: 'raw' }, 'zh'), 'raw', '字符串形态直接用')
+})
+
+test('approvalDetailOf: 两者都缺失 → undefined（调用方只展示 toolName）', () => {
+  assert.equal(approvalDetailOf({}, 'zh'), undefined)
+  assert.equal(approvalDetailOf({ reason: '', displayReason: { en: '' } }, 'zh'), undefined)
+  assert.equal(approvalDetailOf(undefined, 'zh'), undefined, '载荷本身缺失也不抛错')
+  assert.equal(approvalDetailOf({ reason: 42 }, 'zh'), undefined, '非字符串 reason 视作缺失')
 })

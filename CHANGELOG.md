@@ -6,6 +6,20 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.3.4] - 2026-09-25
+
+### 修复
+
+- **审批通知改用 rc.2 的本地化提示文本 `displayReason`**：DSH `0.1.7-rc.2` 给审批事件
+  （`approval/request`）新增可选字段 `displayReason`（`{ en, [locale] }` 字典，官方注释
+  明确「仅用于展示、不进入审批审计事件」），而 `reason` 是给审计用的原始文本。此前通知只展
+  示 `reason`，用户收到的可能是未经本地化的内部表述。现在优先按当前语言偏好取
+  `displayReason`（主子标签匹配 → `en` → 字典首个非空值，与官方 `locale.resolveText`
+  同策略），`displayReason` 缺失或畸形时回落 `reason`，两者都缺失时只展示工具名——
+  旧版协议与只填 `reason` 的 asker 行为不变。取词逻辑为纯函数
+  （`notify-policy.ts` 的 `approvalDetailOf` / `localizedTextOf`），畸形字典一律不抛错
+  （通知是增益不是依赖），并补 8 条回归用例（含 `undefined` 载荷）。
+
 ## [0.3.3] - 2026-09-25
 
 ### 修复
