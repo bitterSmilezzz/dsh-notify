@@ -6,6 +6,32 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.3.5] - 2026-09-25
+
+### 修复
+
+- **`dsh.client.inject` 移除已退役契约的包，`dsh-client-ui-settings-plugins` 补标 optional**
+  （Code Review 发现，低危）：本插件的设置卡片自 0.2.1 起只注册官方 `plugins.bundle.config`
+  契约（DSH 0.1.6-alpha.2 退役了 `settings.plugin.item`，见上游 commit `90af3110b7`），
+  而 `@deepseek-ai/dsh-client-ui-settings-plugins` 是那个旧座位的提供方——该包在 rc.2
+  只剩 Settings → Plugins 的导航入口与表格 chrome，`src/` 与 `test/` 对本插件零引用。
+  现从 `dsh.client.inject` 列表移除它（不再作为一个「要加载的依赖」被拉起），
+  peer+dev 双列保留（声明对官方设置外壳的版本下限）并按同一把尺子补标 `optional`，
+  与 asr-voice / model-selector 的口径对齐。运行时行为不变：宿主侧 peer 兼容校验
+  （`evaluatePluginCompatibility`）只比较版本区间，不读 `peerDependenciesMeta`。
+
+### 测试
+
+- 新增 `test/deps-double-listing.test.mjs`（3 条）：把「`@deepseek-ai/*` 依赖必须
+  peer+dev 双列」「两侧版本范围一致（cordis / schemastery 按宽松策略豁免）」
+  「src/test 零引用的 peer 必须标 optional」三条判据钉住。第三条即上文口径的守卫，
+  已通过「剥掉 optional → 变红并精确点名」的反向验证。
+- 新增 `test/approval-callsite.test.mjs`（2 条）：**调用点级**守卫——审批通知正文必须经
+  `approvalDetailOf(req, preferenceOf())` 取词，且不得直接读 `req.reason` /
+  `req.displayReason`。原有 `notify-policy.test.mjs` 测的是纯函数本体，覆盖不到
+  「调用点绕过纯函数」：若有人把 `notify-events.ts` 改回直接读 `reason`，纯函数测试仍会
+  全绿而用户收到的又变成未经本地化的内部表述。已通过反向验证（替身改动后两条均变红）。
+
 ## [0.3.4] - 2026-09-25
 
 ### 修复
