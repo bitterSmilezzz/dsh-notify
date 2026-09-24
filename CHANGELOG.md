@@ -6,6 +6,22 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.3.3] - 2026-09-25
+
+### 修复
+
+- **补齐 `minimumReleaseAgeExclude` 白名单中的 DSH `0.1.7-rc.2`**（本地开发/CI 被 supply-chain
+  策略误拦的修复）：0.1.7-rc.2 于 2026-09-24 下午发布，本仓库白名单此前只登记到 `0.1.7-rc.1`，
+  而 pnpm 12 的 `minimumReleaseAge`（默认 24h，CLI 与 `.npmrc` 均无法关闭）会把 lockfile 中
+  发布未满 24h 的版本判为策略失败——于是本地任何带依赖检查的 pnpm script（`test` /
+  `typecheck` / `build` / `pnpm install --frozen-lockfile`）全部以
+  `ERR_PNPM_LOCKFILE_SUPPLY_CHAIN_POLICY` 中断（65 个 lockfile 条目验证失败），
+  而本仓库的 `publish.yml` 不安装依赖，所以发布时不会暴露该问题。
+  现将 67 条 rc 行统一追加 `|| 0.1.7-rc.2`。
+- 验证：`pnpm install --frozen-lockfile` EXIT 0（177 entries 全部通过策略校验）、
+  lockfile 零改动、`pnpm test` 107 passed / 0 failed、双 program typecheck 与 `pnpm build` EXIT 0。
+- 运行时行为无变化（`lib/` 产物未变）：这是一次纯构建/策略配置修复。
+
 ## [0.3.2] - 2026-09-24
 
 ### 变更
