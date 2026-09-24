@@ -113,3 +113,37 @@ test('bindConfigScope: 逐字段白名单写入（每个 boolean 字段都有 ty
   // null 快照（host 未就绪）必须被排除：typeof null === 'object' 是经典陷阱。
   assert.match(body, /value != null && typeof value === 'object'/, '快照必须是「非 null 的对象」才应用')
 })
+
+// ── entry id / namespace 一致性（DSH 0.1.7 profile-backed forms）──────────────
+// 0.1.7 起 client 用 `ctx.configForms.get(entryId)` 拿 host 配置，而这个 entryId
+// 必须逐字等于 host 半区 `cordis.patch.yml` 的 `id`（官方按 entry id 定位）。
+// 拿错字符串不抛错、不报编译错：只会拿到 unavailable 快照 → 设置卡照常渲染，
+// 但所有读写静默失效。本插件曾有两个真相源（host 侧常量 'notify' 与 client 的
+// 'dsh-notify'），host 常量已删除，剩下的字符串由这条钉子守住。
+
+test('entry id 一致：client NOTIFY_ENTRY_ID == cordis.patch.yml 的 entry id', () => {
+  const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
+  const ids = [...patch.matchAll(/^\s*-?\s*id:\s*['"]?([A-Za-z0-9._-]+)['"]?\s*$/gm)].map((m) => m[1])
+  assert.equal(ids.length, 1, `cordis.patch.yml 应只有一条 entry id，实际：${ids.join(', ')}`)
+  assert.ok(
+    clientConfig.includes(`const NOTIFY_ENTRY_ID = '${ids[0]}'`),
+    `client 的 NOTIFY_ENTRY_ID 必须是 '${ids[0]}'（与 cordis.patch.yml 的 entry id 一致）`,
+  )
+  // host 半区不得再出现第二个 namespace 常量（删除的那个曾是漂移源）。
+  assert.doesNotMatch(hostIndex, /NOTIFY_SETTINGS_NAMESPACE\s*=/, 'host 侧不得再定义自己的 namespace 常量')
+})
+
+test('setConfig: set 返回 false / reject 都要广播 config-error（0.1.7 新契约）', () => {
+  const body = blockOf(
+    clientConfig,
+    /export function setConfig\(field: keyof NotifyConfig([\s\S]*?)\n\}/,
+    'setConfig 函数体',
+  )
+  // 失败路径必须存在且覆盖两种形态：promise resolve(false) 与 reject。
+  assert.match(body, /if \(!accepted\) fail\(\)/, 'set 返回 false 必须走失败路径')
+  // 拒写（resolve(false)）与 reject 两条路径：reject 的兜底是 .then 的第二个参数 fail。
+  assert.match(body, /\.then\([\s\S]{0,200}?accepted[\s\S]{0,80}?,\s*fail\)/, 'set reject 必须走失败路径（.then 的第二个参数）')
+  assert.match(body, /dsh-notify:config-error/, '失败必须广播 config-error 事件')
+  // 同步抛错也要有兜底，否则会从 React onChange 里冒出去。
+  assert.match(body, /\}\s*catch\s*\{/, 'setConfig 必须有同步 try/catch 兜底')
+})

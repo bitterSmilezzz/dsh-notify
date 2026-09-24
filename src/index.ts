@@ -29,8 +29,16 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import z from '@deepseek-ai/schemastery';
 import { applySystemNotify, type NotifyConfig } from './notify-events.ts'
 
-/** 插件配置页的 settings namespace：与 entry id（cordis.patch.yml 的 `id`）一致。 */
-export const NOTIFY_SETTINGS_NAMESPACE = 'notify'
+/**
+ * 配置 namespace 由 **profile entry id** 提供（DSH 0.1.7 profile-backed forms）：
+ * host 半区不自己命名，`cordis.patch.yml` 的 `id: dsh-notify` 就是 namespace，
+ * client 半区用同一个字符串 `configForms.get('dsh-notify')`。
+ *
+ * 这里**不再导出**自己的 namespace 常量——0.1.4 之前的 `ctx.settings.register(ns, ...)`
+ * 需要它，0.1.7 上游 API 移除后它就成了第二个真相源（此前的 `'notify'` 与 entry id
+ * `'dsh-notify'` 已经分叉，而它没有任何调用方）。两处字符串的一致性改由
+ * `test/config-parity.test.mjs` 的 entry-id 钉住（与 dsh-asr-voice 同一套做法）。
+ */
 
 export const name = 'dsh-notify'
 

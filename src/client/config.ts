@@ -41,7 +41,13 @@ function announce(): void {
   window.dispatchEvent(new CustomEvent('dsh-notify:config', { detail: { ...config } }))
 }
 
-/** host Config 的 entry id：与 host 半区 `cordis.patch.yml` 的 `id` 一致。 */
+/**
+ * host Config 的 entry id = settings namespace：必须与 host 半区
+ * `cordis.patch.yml` 的 `id` 逐字相同（0.1.7 起 `configForms.get(entryId)` 与
+ * `SettingsForms.update(ns)` 都按 entry id 定位）。拿错字符串**不抛错**，只会拿到
+ * unavailable 快照 → 设置卡渲染成功但读写静默失效；一致性由
+ * `test/config-parity.test.mjs` 的 entry-id 钉子守住。
+ */
 const NOTIFY_ENTRY_ID = 'dsh-notify'
 
 /**

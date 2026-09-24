@@ -6,7 +6,30 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
-## [未发布]
+## [0.3.1] - 2026-09-24
+
+### 修复
+
+- **删除已失效的 host 侧 namespace 常量**（静默失效家族的可诊断性修复）：
+  `NOTIFY_SETTINGS_NAMESPACE` 的值是 `'notify'`，而 0.1.7 起 namespace 由 profile entry id
+  提供、本插件的 entry id 是 `'dsh-notify'`——两者已经分叉，且该常量在 0.1.7 之后
+  **没有任何调用方**。留着它就是第二个真相源：日后有人照它改名，会出现「host 用 notify /
+  client 用 dsh-notify」的半边失效。现删除该导出，改由
+  `test/config-parity.test.mjs` 的 entry-id 钉子守住「client `NOTIFY_ENTRY_ID` ==
+  cordis.patch.yml 的 `id`」。
+- CHANGELOG 版本段修正：已发布的 0.3.0 此前顶着 `## [未发布]`（与 npm / git tag 不一致），
+  改回 `## [0.3.0] - 2026-09-23` 并同步底部 compare 链接，与「三包统一版本号 + 日期」的
+  规范一致（该格式也是 model-selector publish workflow 的版本段门禁所要求的）。
+- `cordis.patch.yml` 补文件末尾换行（历史遗留的格式问题，不影响解析）。
+
+### 工程
+
+- `test/config-parity.test.mjs` 新增两条钉子：① entry id 三方一致
+  （cordis.patch.yml 的 `id` / client `NOTIFY_ENTRY_ID` / host 不得再定义自己的常量）；
+  ② `setConfig` 的 `set` 返回 `false` 与 reject 都必须广播 `dsh-notify:config-error`
+  （0.1.7 起 `set` 返回 `Promise<boolean>`，这是唯一的行为变化分支，此前无回归覆盖）。
+
+## [0.3.0] - 2026-09-23
 
 ### 变更（破坏性）
 
@@ -193,7 +216,8 @@
   `authenticatedUrl`，并把会话 ID 放进 `#session=` fragment，首次点击自动种 cookie，
   解决带鉴权后通知点击落不到目标会话的问题。
 
-[未发布]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.2.0...HEAD
+[0.3.1]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.14...v0.2.0
 [0.1.11]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/bitterSmilezzz/dsh-notify/compare/v0.1.9...v0.1.10
