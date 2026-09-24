@@ -6,6 +6,22 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.3.2] - 2026-09-24
+
+### 变更
+
+- **`@deepseek-ai/*` 依赖对齐到 DSH `0.1.7-rc.2`**：peerDependencies 与 devDependencies
+  双列同步升级（`dsh-agent` / `dsh-api-session-controller` / `dsh-client-connection` /
+  `dsh-client-locale` / `dsh-client-ui-plugin-manager` / `dsh-client-ui-primitives` /
+  `dsh-client-ui-renderer` / `dsh-client-ui-settings` / `dsh-client-ui-settings-plugins` /
+  `dsh-client-ui-slots` / `dsh-settings` / `dsh-user-approval`）。
+- **未做源码适配**：已核对 rc.1→rc.2 的破坏性变更面——`plugins.bundle.config` 设置座位契约
+  未变；Cordis 事件 `agent/status` / `agent/error` / `approval/request` 类型未变；
+  `ui-primitives` 的导出新增（`MenuSurface` / `ShortcutKeys` / `observeComposition` /
+  `focusWithoutRing` / `useModalLayer` 等）与删除（`OnboardingSurface`）本插件均未引用；
+  `Switch` 组件样式调整不影响其 props 契约。
+- 验证：107 用例全绿 + host/client 双 program typecheck + `pnpm build`。
+
 ## [0.3.1] - 2026-09-24
 
 ### 修复
