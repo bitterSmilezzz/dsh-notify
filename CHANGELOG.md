@@ -14,8 +14,9 @@
   （`approval/request`）新增可选字段 `displayReason`（`{ en, [locale] }` 字典，官方注释
   明确「仅用于展示、不进入审批审计事件」），而 `reason` 是给审计用的原始文本。此前通知只展
   示 `reason`，用户收到的可能是未经本地化的内部表述。现在优先按当前语言偏好取
-  `displayReason`（主子标签匹配 → `en` → 字典首个非空值，与官方 `locale.resolveText`
-  同策略），`displayReason` 缺失或畸形时回落 `reason`，两者都缺失时只展示工具名——
+  `displayReason`（解析顺序：精确 locale 键 → 主子标签 → `en` → 字典首个非空值；
+  与官方 `locale.resolveText` 同向但在「空串视为缺失」等两处边角刻意不同，源码注释有记录），
+  `displayReason` 缺失或畸形时回落 `reason`，两者都缺失时只展示工具名——
   旧版协议与只填 `reason` 的 asker 行为不变。取词逻辑为纯函数
   （`notify-policy.ts` 的 `approvalDetailOf` / `localizedTextOf`），畸形字典一律不抛错
   （通知是增益不是依赖），并补 8 条回归用例（含 `undefined` 载荷）。

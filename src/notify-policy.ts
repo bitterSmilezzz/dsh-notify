@@ -86,10 +86,18 @@ export function errorDedupKey(agentId: string, message: string): string {
 }
 
 /**
- * 本地化字典取词：`LocalizedText`（`{ en, [locale] }`，官方 locale.resolveText
- * 同构）按当前语言的主子标签取，缺失回落 en，再缺失回落字典里第一个非空值。
- * host 半区没有官方 LocaleFace（那是 client 侧服务），用等价策略自实现；
- * 与官方一致地绝不抛错——畸形字典（null / 空值 / 非字符串值）一律继续回落。
+ * 本地化字典取词：`LocalizedText`（`{ en, [locale] }`），解析顺序
+ * 精确 locale 键 → 主子标签键 → `en` → 字典首个非空值。
+ *
+ * 与官方 `locale.resolveText` 的关系：**同向但有两处刻意差异**（host 半区拿不到
+ * 官方 LocaleFace，只能自实现，先记录差异免得日后误以为完全等价）：
+ * 1. 官方链是「当前 locale（含其声明 fallback，如 zh→en）逐级 `??` 回落」，
+ *    且**空串是合法翻译**（`??` 不跳过空串）；这里把空串视作缺失继续回落——
+ *    通知正文出现空白条目等于没通知，落到 en 比展示空文本好。
+ * 2. 官方链按 LocaleDefinition 的 fallback 声明走（当前只有 zh→en 一条）；
+ *    这里简化为「主子标签 → en」，因为 displayReason 的键由各 asker 自填，
+ *    不受声明链约束。差异只在「空翻译」与「非声明链 locale」两种边角生效。
+ * 两者共同点是绝不抛错：畸形字典（null / 空值 / 非字符串值）一律继续回落。
  *
  * DSH rc.2 起审批事件带 `displayReason`（本地化提示文本，`reason` 是审计用
  * 原始文本）：通知是给用户读的，应优先展示本地化版本。

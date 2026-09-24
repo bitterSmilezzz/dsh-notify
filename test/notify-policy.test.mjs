@@ -171,7 +171,7 @@ test('errorDedupKey: 超长消息截断，键长有界', () => {
 
 test('localizedTextOf: 按语言主子标签取，缺失回落 en', () => {
   const dict = { en: 'Run the command', zh: '执行命令', ja: 'コマンド実行' }
-  assert.equal(localizedTextOf(dict, 'zh-CN'), '执行命令', 'BCP47 偏好按主子标签匹配（官方 locale 同策略）')
+  assert.equal(localizedTextOf(dict, 'zh-CN'), '执行命令', 'BCP47 偏好按主子标签匹配（解析顺序见 notify-policy.ts 头注释）')
   assert.equal(localizedTextOf(dict, 'zh_TW'), '执行命令')
   assert.equal(localizedTextOf(dict, 'ja'), 'コマンド実行')
   assert.equal(localizedTextOf(dict, 'fr'), 'Run the command', '未知语言回落 en')
