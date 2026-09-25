@@ -6,6 +6,30 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.3.6] - 2026-09-25
+
+### 修复
+
+- **「零引用 ⇒ optional」口径守卫改为只认真实 import 形态**（Code Review 发现，中危）：
+  原判据用 `content.includes(packageName)` 判断某 peer 是否被引用，于是**注释里点名该包
+  也算「已引用」**——而这条钉子的存在目的正是「防止再漏标 optional」，一把被自己的注释
+  喂饱的尺子量不出下一次漏标（asr-voice 的头注释此前已宣称「排除注释」，实现却与旧版
+  一字不差，属注释宣称 A、代码做 B）。改动已做变异实证：把 `src/client/index.ts` 唯一
+  真实 import 换成注释并剥掉 optional，旧守卫**仍然全绿**。
+  现改为先剥块注释与引号外的行注释，再匹配真实 import 形态（`from '<pkg>'` /
+  `from '<pkg>/sub'` / 动态 `import('<pkg>')`，包名整体匹配，`pkg` 与 `pkg-extra`
+  不会互相冒认），并新增 2 条单元钉子（形态表 + 与口径共用同一判据的变异验证）。
+
+- **审批调用点钉子的窗口定位改为结构切片**（Code Review 发现，低危）：原窗口用
+  `indexOf('NOTIFY_EVENTS.approval')` 定位，找到的是常量 import 行而非 handler 起点，
+  且宽度固定 4000 字符（当前 handler 全长 3183，余量 817）——审批分支一旦增长，超出
+  部分静默不再被覆盖。现从 `ctx.on(NOTIFY_EVENTS.approval` 起、到下一个 `ctx.on(` 止。
+
+### 测试
+
+- 新增 `referencesPackage` 形态单元测试与「零引用扫描不会被注释喂成恒真」变异测试
+  （破坏 → 变红已实测），审批窗口改为结构切片后补切片自检。
+
 ## [0.3.5] - 2026-09-25
 
 ### 修复
