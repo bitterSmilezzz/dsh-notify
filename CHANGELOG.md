@@ -6,6 +6,22 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.3.7] - 2026-09-29
+
+### 变更
+
+- **适配 DSH 0.2.0**：`peerDependencies` / `devDependencies` 中全部
+  `@deepseek-ai/dsh-*` 依赖范围由 `^0.1.7-rc.2` 提升至 `^0.2.0-rc.1` 与 `^0.2.0-rc.2`，
+  `@deepseek-ai/cordis` 提至 `~4.0.4`（peer）/ `^4.0.4`（dev）。
+  0.2.0 起 DSH 会强校验插件 peer 兼容性，范围不跟随会被**整行禁用且不报错**，
+  故本条属对外可见的兼容性变化，抬 patch 版本。
+- **源码零改动**：`typecheck` / 122 条测试 / `build` 全部通过，插件依赖的
+  `plugins.bundle.config` 座位、`ctx.configForms.get(entryId)`、`ui-slots` 的
+  `priority` 语义在 0.2.0 中均未变更。
+- **CI 白名单同步**：向 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude`
+  追加 67 行新版本，避免 `publish.yml` 的 `pnpm install --frozen-lockfile`
+  被 release-age 策略拦下。
+
 ## [0.3.6] - 2026-09-25
 
 ### 修复
