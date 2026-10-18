@@ -257,3 +257,27 @@ test('未提供 uiSession（部署缺该插件）时控制器直接退出且不�
   harness.ctx.get = (name) => (name === 'sessions' ? harness.sessions : undefined)
   assert.doesNotThrow(() => bundle.exports.apply(harness.ctx))
 })
+
+test('启动安全：服务面畸形（缺 sessionStatus / 缺 list / 缺 $on）时 apply 不抛错', () => {
+  // client 入口抛错会被桌面壳判为致命启动失败，所以每一种缺件都必须安全退出。
+  const cases = [
+    ['ui-session 存在但无 sessionStatus', { uiSession: {} }],
+    ['sessions 存在但无 list', { sessions: {} }],
+    ['remote 存在但无 $on', { remote: {} }],
+  ]
+  for (const [name, overrides] of cases) {
+    const bundle = loadClientBundle()
+    const harness = makeClientContext()
+    const services = { sessions: harness.sessions, uiSession: harness.uiSession, remote: harness.remote, ...overrides }
+    harness.ctx.get = (key) => services[key]
+    assert.doesNotThrow(() => bundle.exports.apply(harness.ctx), name)
+  }
+})
+
+test('启动安全：事件回调里的异常不冒泡（会话行畸形）', () => {
+  const { harness } = setup()
+  // byId 里塞一个畸形行：读取时不应把异常抛回官方事件总线。
+  harness.sessions.rows = [{ id: 's1', title: undefined, retainedBy: null }]
+  assert.doesNotThrow(() => harness.pushStatus({ s1: { running: false } }))
+  assert.doesNotThrow(() => harness.pushError('s1', 'boom'))
+})

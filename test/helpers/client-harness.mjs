@@ -193,6 +193,7 @@ export function makeClientContext(options = {}) {
   return {
     ctx,
     sessions,
+    uiSession,
     remote,
     state,
     effects,
