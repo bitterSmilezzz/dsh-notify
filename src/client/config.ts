@@ -9,24 +9,36 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the settings domain's Context merge (ctx.configForms).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
-/** 统一配置对象：与 host settings schema 结构一致（字段漂移由测试钉住）。 */
+/** 统一配置对象：与 host Config schema 结构一致（字段漂移由测试钉住）。 */
 export interface NotifyConfig {
   enabled: boolean
   approval: boolean
+  question: boolean
   turn: boolean
   sessionDone: boolean
   error: boolean
+  subagent: boolean
   sound: boolean
+  summary: boolean
+  quietHours: boolean
+  quietStart: string
+  quietEnd: string
 }
 
 /** 配置默认值（与 host schema 的 default 一致）。 */
 export const DEFAULTS: NotifyConfig = {
   enabled: true,
   approval: true,
+  question: true,
   turn: true,
   sessionDone: true,
   error: true,
+  subagent: false,
   sound: true,
+  summary: true,
+  quietHours: false,
+  quietStart: '22:00',
+  quietEnd: '08:00',
 }
 
 /** 运行时配置快照：初始为默认值，scope 订阅与 setConfig 共同维护。 */
@@ -70,10 +82,16 @@ export function bindConfigScope(ctx: ClientContext): () => void {
       const next = value as Partial<Record<keyof NotifyConfig, unknown>>
       if (typeof next.enabled === 'boolean') config.enabled = next.enabled
       if (typeof next.approval === 'boolean') config.approval = next.approval
+      if (typeof next.question === 'boolean') config.question = next.question
       if (typeof next.turn === 'boolean') config.turn = next.turn
       if (typeof next.sessionDone === 'boolean') config.sessionDone = next.sessionDone
       if (typeof next.error === 'boolean') config.error = next.error
+      if (typeof next.subagent === 'boolean') config.subagent = next.subagent
       if (typeof next.sound === 'boolean') config.sound = next.sound
+      if (typeof next.summary === 'boolean') config.summary = next.summary
+      if (typeof next.quietHours === 'boolean') config.quietHours = next.quietHours
+      if (typeof next.quietStart === 'string') config.quietStart = next.quietStart
+      if (typeof next.quietEnd === 'string') config.quietEnd = next.quietEnd
       announce()
     }
   }

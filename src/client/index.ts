@@ -1,13 +1,16 @@
 /**
  * dsh-notify — browser half entry (single fiber).
  *
- * 组合：设置卡片、通知声音、点通知跳会话 deep-link、聚焦上报。
- * 配置由 host settings 服务持有（config.ts）。
+ * 组合：通知控制器（Web Notification 通道，见 notifications.ts）、设置卡片、
+ * 通知声音试听、URL deep-link。配置由 host Config 持有（config.ts）。
  *
  * 设置卡片注册到官方 `plugins.bundle.config` 契约（插件详情页）。旧契约
  * `settings.plugin.item` 已在 dsh 0.1.6-alpha.2 退役（commit 90af3110b7），
  * 不再注册（见 settings-card.tsx）。用 `slots.inject` 注册——未声明该 slot
  * 的部署里 inject 只是等待，不会报错。
+ *
+ * activation safety：所有服务在 apply 顶层一次性取出。回调里再走
+ * `ctx.<service>` 会撞上「inactive context」并被桌面壳视为致命启动失败。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the ui-renderer Context merge (ctx.slots), moved here in dsh-settings alpha.2.
@@ -21,15 +24,14 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import * as jsxRuntime from 'react/jsx-runtime'
 import { zh, en } from './locales.ts'
 import { CSS } from './styles.ts'
-import { bindConfigScope } from './config.ts'
+import { bindConfigScope, config } from './config.ts'
+import { applyNotifications, type NotifyRuntime } from './notifications.ts'
 import { NotifySettingsCard, type NotifyCardView } from './settings-card.tsx'
 import { applySessionDeepLink } from './deep-link.ts'
-import { mountSoundWarmup } from './sound.ts'
-import { applyPresenceReporting } from './presence.ts'
 
 export { zh, en }
 
-/** 设置 namespace（host settings 的 `notify`）。 */
+/** 设置 namespace（host settings 的 entry id）。 */
 const NS = 'notify'
 
 /** 包名（`plugins.bundle.config` 的 key：bundle 的 package name）。 */
@@ -58,8 +60,17 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(tag)
     return () => tag.remove()
   }, 'dsh-notify: styles')
-  // 音效预热监听 + AudioContext 生命周期随 fiber 挂载/回收（防 update/HMR 泄漏）。
-  ctx.effect(() => mountSoundWarmup(), 'dsh-notify: sound warmup')
+
+  // locale 服务在 apply 顶层捕获：回调里再读 ctx.locale 会撞 inactive context。
+  const locale = ctx.locale
+  const runtime: NotifyRuntime = {
+    // 每次显式读全局快照，热改配置后无需重挂控制器。
+    config: () => ({ ...config }),
+    t: ctx.locale.bind(NS),
+    activeLocale: () => locale.getLocale().active,
+  }
+  applyNotifications(ctx, runtime)
+
   const t = ctx.locale.bind(NS)
   const card = (props: NotifyCardOwnerProps) => jsxRuntime.jsx(NotifySettingsCard, { t, view: props?.view })
 
@@ -71,11 +82,8 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
   }, card))
 
-  // 点系统通知跳转对应会话（host 通知的 client 半区）
+  // URL deep-link：`#session=<id>` / `?session=<id>` 直达对应会话
   applySessionDeepLink(ctx)
-
-  // 聚焦上报：页面可见性变化时告知 host（抑制非阻塞通知）
-  applyPresenceReporting(ctx)
 }
 
 export const name = 'dsh-notify'

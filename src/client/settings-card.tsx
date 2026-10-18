@@ -3,19 +3,21 @@
  *
  * 渲染在插件详情页（侧边栏 Plugins 面板 → 本插件 → 配置表单）：页面自己画
  * 标题/图标/面包屑，occupant 按 `view: 'summary' | 'page'` 渲染一行摘要或表单。
- * `view` 缺省（如更早的运行时）时退回自绘折叠外壳兜底。旧契约
- * `settings.plugin.item` 已在 dsh 0.1.6-alpha.2 退役（commit 90af3110b7），
- * 不再注册（见 client/index.ts）。
+ * `view` 缺省（如更早的运行时）时退回自绘折叠外壳兜底。
  *
- * 开关走 config 快照（host settings 为权威源），拨动即写 host（无暂存/保存步）：
+ * 开关走 config 快照（host Config 为权威源），拨动即写 host（无暂存/保存步）：
  * 开关的意图是即时的，不存在官方 staged 文本字段那种「未预览的写入」问题。
+ * 时段输入是唯一的例外——它需要连续编辑（22:00 删成 2:00 不能中途落盘），
+ * 所以在 blur/回车时才提交。
  */
 import * as react from 'react'
 // Type-only: pulls the plugin-manager SlotMap merge (the plugins.bundle.config seat).
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { IconChevronDownOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { config, setConfig } from './config.ts'
-import { playSound } from './sound.ts'
+import {
+  notificationPermission, requestNotificationPermission, sendTestNotification,
+} from './notifications.ts'
 import type { LocaleT } from './locale.ts'
 
 /** 官方契约的视图选择（插件详情页传入）。 */
@@ -36,15 +38,61 @@ function ToggleRow({ title, desc, checked, onChange }: { title: string; desc?: s
   )
 }
 
-/** 宿主是否为 macOS（用于「去系统设置开启」入口的可见性判断：
- *  x-apple.systempreferences 深链只在 macOS 有效，Windows/Linux 展示了也无用）。 */
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent)
-
 /**
- * 通知设置表单主体：桌面通知开关分组 + 试听 + 权限入口。
- * @param props.t - locale 绑定的翻译函数。
- * @returns 表单内容（不含外壳，外壳由调用方按契约决定）。
+ * 时段输入：本地 state 承接连续编辑，blur / 回车时才写 host。
+ * 浏览器 `type="time"` 自带 `HH:MM` 形态与非空校验，非法值不会出现在这里。
  */
+function ClockField({ label, value, onCommit }: { label: string; value: string; onCommit: (next: string) => void }) {
+  const [draft, setDraft] = react.useState(value)
+  // host 侧被别处改动时（多窗口/重置）同步显示，但不覆盖正在编辑的输入。
+  const [focused, setFocused] = react.useState(false)
+  react.useEffect(() => { if (!focused) setDraft(value) }, [value, focused])
+  const commit = (): void => { if (draft !== value && draft !== '') onCommit(draft) }
+  return (
+    <label className="dshn-clock">
+      <span className="dshn-clockLabel">{label}</span>
+      <input
+        type="time"
+        className="dshn-input"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); commit() }}
+        onKeyDown={(event) => { if (event.key === 'Enter') commit() }}
+      />
+    </label>
+  )
+}
+
+/** 通知权限行：桌面 App 恒为已授权，浏览器首次需要一次用户手势。 */
+function PermissionRow({ t }: { t: LocaleT }) {
+  const [state, setState] = react.useState(() => notificationPermission())
+  const grant = (): void => {
+    void requestNotificationPermission().then((next) => {
+      setState(next)
+      // 授权成功后立刻给一条真实回执：用户能当场确认通道通了。
+      if (next === 'granted') sendTestNotification(t('titleTurn'), t('notifyTest'), config.sound)
+    })
+  }
+  const text = state === 'granted'
+    ? t('permGranted')
+    : state === 'denied' ? t('permDenied') : state === 'unsupported' ? t('permUnsupported') : t('permDesc')
+  return (
+    <div className="dshn-row">
+      <span className="dshn-rowText">
+        <span className="dshn-rowTitle">{t('permTitle')}</span>
+        <span className="dshn-rowDesc">{text}</span>
+      </span>
+      <span className="dshn-field">
+        {state === 'default' ? (
+          <button type="button" className="dshn-button" onClick={grant}>{t('permGrant')}</button>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
+/** 通知设置表单主体：事件开关 + 通用 + 免打扰 + 权限。 */
 function NotifyForm({ t }: { t: LocaleT }) {
   const [saveFailed, setSaveFailed] = react.useState(false)
   const [, force] = react.useReducer((x) => x + 1, 0)
@@ -61,73 +109,74 @@ function NotifyForm({ t }: { t: LocaleT }) {
     }
   }, [])
 
+  /** 翻转一个布尔开关（先改快照再写 host，见 setConfig）。 */
+  const flip = (field: 'enabled' | 'approval' | 'question' | 'turn' | 'sessionDone' | 'error' | 'subagent' | 'summary' | 'sound' | 'quietHours'): (() => void) =>
+    () => setConfig(field, () => { config[field] = !config[field] })
+
   return (
     <div className="dshn-form">
       {saveFailed ? <p className="dshn-status dshn-err" role="alert">{t('notifySaveFailed')}</p> : null}
+
       <div className="dshn-group">
-        <p className="dshn-groupTitle">{t('groupNotify')}</p>
-        <ToggleRow
-          title={t('notifyTitle')}
-          desc={t('notifyDesc')}
-          checked={config.enabled}
-          onChange={() => setConfig('enabled', () => { config.enabled = !config.enabled })}
-        />
-        <ToggleRow
-          title={t('notifyApproval')}
-          checked={config.approval}
-          onChange={() => setConfig('approval', () => { config.approval = !config.approval })}
-        />
-        <ToggleRow
-          title={t('notifyTurn')}
-          checked={config.turn}
-          onChange={() => setConfig('turn', () => { config.turn = !config.turn })}
-        />
-        <ToggleRow
-          title={t('notifySessionDone')}
-          checked={config.sessionDone}
-          onChange={() => setConfig('sessionDone', () => { config.sessionDone = !config.sessionDone })}
-        />
-        <ToggleRow
-          title={t('notifyError')}
-          checked={config.error}
-          onChange={() => setConfig('error', () => { config.error = !config.error })}
-        />
+        <p className="dshn-groupTitle">{t('groupEvents')}</p>
+        <ToggleRow title={t('notifyTitle')} desc={t('notifyDesc')} checked={config.enabled} onChange={flip('enabled')} />
+        <ToggleRow title={t('notifyApproval')} checked={config.approval} onChange={flip('approval')} />
+        <ToggleRow title={t('notifyQuestion')} checked={config.question} onChange={flip('question')} />
+        <ToggleRow title={t('notifyTurn')} checked={config.turn} onChange={flip('turn')} />
+        <ToggleRow title={t('notifySessionDone')} checked={config.sessionDone} onChange={flip('sessionDone')} />
+        <ToggleRow title={t('notifyError')} checked={config.error} onChange={flip('error')} />
+        <ToggleRow title={t('notifySubagent')} desc={t('notifySubagentDesc')} checked={config.subagent} onChange={flip('subagent')} />
+      </div>
+
+      <div className="dshn-group">
+        <p className="dshn-groupTitle">{t('groupGeneral')}</p>
+        <ToggleRow title={t('notifySummary')} desc={t('notifySummaryDesc')} checked={config.summary} onChange={flip('summary')} />
         <div className="dshn-row">
-          <div className="dshn-rowText">
+          <span className="dshn-rowText">
             <span className="dshn-rowTitle">{t('notifySound')}</span>
             <span className="dshn-rowDesc">{t('notifySoundDesc')}</span>
-          </div>
-          <div className="dshn-field">
-            {/* 官方 Switch（自带开关角色、无障碍名与 aria-checked），与上方 ToggleRow 同源；
-                「音效」行多一个试听按钮，故不套 ToggleRow，只复用同一个官方控件。 */}
-            <Switch
-              checked={config.sound}
-              onChange={() => setConfig('sound', () => { config.sound = !config.sound })}
-              label={t('notifySound')}
-            />
-            <button type="button" className="dshn-button" onClick={() => playSound(true)}>
+          </span>
+          <span className="dshn-field">
+            <Switch checked={config.sound} onChange={flip('sound')} label={t('notifySound')} />
+          </span>
+        </div>
+        <PermissionRow t={t} />
+        <div className="dshn-row">
+          <span className="dshn-rowText">
+            <span className="dshn-rowTitle">{t('notifyTest')}</span>
+          </span>
+          <span className="dshn-field">
+            <button
+              type="button"
+              className="dshn-button"
+              onClick={() => { sendTestNotification(t('titleTurn'), t('masterTitle'), config.sound) }}
+            >
               {t('notifyTest')}
             </button>
-          </div>
+          </span>
         </div>
-        {IS_MAC ? (
+      </div>
+
+      <div className="dshn-group">
+        <p className="dshn-groupTitle">{t('groupQuiet')}</p>
+        <ToggleRow title={t('notifyQuiet')} desc={t('notifyQuietDesc')} checked={config.quietHours} onChange={flip('quietHours')} />
+        {config.quietHours ? (
           <div className="dshn-row">
-            <div className="dshn-rowText">
-              <span className="dshn-rowTitle">{t('notifyPermTitle')}</span>
-              <p className="dshn-rowDesc">{t('notifyPermDesc')}</p>
-            </div>
-            <div className="dshn-field">
-              <button
-                type="button"
-                className="dshn-button"
-                onClick={() => {
-                  // macOS：打开系统设置通知页（需用户手动开启 Terminal/宿主 App 的通知）。
-                  window.open('x-apple.systempreferences:com.apple.Notifications-Settings.extension', '_self')
-                }}
-              >
-                {t('notifyPermOpen')}
-              </button>
-            </div>
+            <span className="dshn-rowText">
+              <span className="dshn-rowDesc">{t('notifyQuietHint')}</span>
+            </span>
+            <span className="dshn-field">
+              <ClockField
+                label={t('notifyQuietStart')}
+                value={config.quietStart}
+                onCommit={(next) => setConfig('quietStart', () => { config.quietStart = next })}
+              />
+              <ClockField
+                label={t('notifyQuietEnd')}
+                value={config.quietEnd}
+                onCommit={(next) => setConfig('quietEnd', () => { config.quietEnd = next })}
+              />
+            </span>
           </div>
         ) : null}
       </div>
@@ -176,6 +225,7 @@ function LegacyCardShell({ t, children }: { t: LocaleT; children: react.ReactNod
  *
  * @param props.t - locale 绑定（闭包传入）。
  * @param props.view - 插件详情页传入的视图选择。
+ * @returns 卡片内容。
  */
 export function NotifySettingsCard({ t, view }: { t: LocaleT; view?: NotifyCardView | undefined }) {
   if (view === 'summary') return <>{t('masterDesc')}</>

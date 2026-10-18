@@ -40,19 +40,22 @@ test('设置卡片：折叠箭头用官方图标，不自绘 svg', () => {
 })
 
 test('设置卡片：音效行由官方 Switch 承载，且仍写回 config.sound', () => {
-  const start = card.indexOf("t('notifySound')")
-  const end = card.indexOf("t('notifyTest')")
-  assert.notEqual(start, -1, '音效行标题不得消失')
-  assert.notEqual(end, -1, '试听按钮不得消失')
-  const soundRow = card.slice(start, end)
+  // 以开关自身的绑定为锚点取行窗口：词条名在文件里会出现在多处（权限行也会引用
+  // 测试通知文案），用词条位置切片会切到空区间。
+  const anchor = card.indexOf('checked={config.sound}')
+  assert.notEqual(anchor, -1, '音效开关必须绑定 config.sound')
+  const soundRow = card.slice(Math.max(0, anchor - 240), anchor + 240)
   assert.match(soundRow, /<Switch\b/, '音效开关必须是官方 Switch')
-  assert.match(soundRow, /checked=\{config\.sound\}/, '开关状态仍取自 config.sound')
+  // 翻转统一走卡片顶部的 flip() 工厂：它必须落到 setConfig 的即时写路径上，
+  // 且按字段名就地改写快照（不再是每行手写一遍闭包）。
+  assert.match(soundRow, /onChange=\{flip\('sound'\)\}/, '音效行仍绑定 sound 字段')
   assert.match(
-    soundRow,
-    /setConfig\('sound', \(\) => \{ config\.sound = !config\.sound \}\)/,
-    '翻转仍走既有的 setConfig 就地改写',
+    card,
+    /setConfig\(field, \(\) => \{ config\[field\] = !config\[field\] \}\)/,
+    'flip() 必须走既有的 setConfig 就地改写',
   )
   assert.match(soundRow, /label=\{t\('notifySound'\)\}/, '无障碍名仍由本地化词条提供')
+  assert.match(card, /t\('notifyTest'\)/, '测试通知按钮不得消失')
 })
 
 test('设置卡片：注册 plugins.bundle.config 契约，旧 settings.plugin.item 不得回流', () => {

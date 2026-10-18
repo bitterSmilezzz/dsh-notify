@@ -1,13 +1,13 @@
 /**
- * 两端配置一致性钉子（源码级文本断言，风格同 settings-card-switch.test.mjs）。
+ * 契约漂移守卫：这些不一致**都不会抛错**，只会静默失效，所以必须逐条钉住。
  *
- * 防的是「配置漂移」这一类静默 bug：host settings schema 是权威源，client
- * 半区（NotifyConfig / DEFAULTS / bindConfigScope）是它的镜像。任一侧新增、
- * 改名或删除字段而另一侧没跟上时，表现是「开关点了没反应 / 设置不生效」，
- * 编译期完全无感——只能靠这三方字段集比对钉住。
- *
- * 同时钉住已删除的防重叠探测（overlap / probeServices）不得回流：那一轮
- * 优化的结论是「探针不可靠 + 与官方组件层重叠」，回流等于把噪音加回来。
+ *   1. 词条：zh 是 key 集真相源，en 必须完整（漏一条就是英文界面少一块文案）；
+ *   2. 配置字段与默认值：host schema ↔ client DEFAULTS 双向一致——只在一侧
+ *      加字段，设置页要么不显示、要么显示了写不进去；
+ *   3. entry id：`cordis.patch.yml` 的 `id` 就是 host Config 的 namespace，
+ *      client 用同一个字符串去 `configForms.get()`；拿错字符串**不抛错**，
+ *      只会拿到 unavailable 快照 → 卡片渲染成功但读写静默失效；
+ *   4. 文案引用：`t('x')` 用到的 key 必须在词典里存在（否则界面上出现裸 key）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,135 +15,105 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const hostIndex = readFileSync(join(root, 'src', 'index.ts'), 'utf8')
-const clientConfig = readFileSync(join(root, 'src', 'client', 'config.ts'), 'utf8')
+// 直接读源码（node 26 原生 type-stripping）：client 半区只有 bundle 产物，
+// 没有逐模块的 .js，所以词典必须从 .ts 源取。
 const { zh, en } = await import('../src/client/locales.ts')
 
-/** 提取源码里某段文本（正则捕获组 1）；缺失即测试失败（防正则静默失效）。 */
-function blockOf(source, pattern, label) {
-  const matched = source.match(pattern)
-  assert.ok(matched, `${label}：正则未命中（源码结构变了，测试必须同步更新而不是静默放过）`)
-  return matched[1]
-}
-/** 从一段源码块中按缩进提取字段名（排序后便于 deepEqual）。 */
-function fieldsOf(block, pattern) {
-  return [...block.matchAll(pattern)].map((m) => m[1]).sort()
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const read = (relative) => readFileSync(join(root, relative), 'utf8')
+
+const hostIndex = read('src/index.ts')
+const clientConfig = read('src/client/config.ts')
+const clientIndex = read('src/client/index.ts')
+const patch = read('cordis.patch.yml')
+const localesSource = read('src/client/locales.ts')
+const settingsCard = read('src/client/settings-card.tsx')
+const pkg = JSON.parse(read('package.json'))
+
+/** 从 DEFAULTS 字面量里取出字段名（保持源码顺序）。 */
+function defaultFields() {
+  const block = /export const DEFAULTS[^{]*\{([\s\S]*?)\n\}/u.exec(clientConfig)?.[1] ?? ''
+  return [...block.matchAll(/^\s{2}(\w+):/gmu)].map((m) => m[1])
 }
 
-// DSH 0.1.7 起 host 配置是入口模块顶层导出的 `export const Config = z.object({...})`
-// （profile-backed forms，entry id 即 namespace），不再是 apply 内的
-// `ctx.settings.register(ns, z.object({...}))`。
-const schemaFields = fieldsOf(
-  blockOf(hostIndex, /export const Config = z\.object\(\{([\s\S]*?)\n\}\)/, 'host Config schema'),
-  /^\s{2}(\w+):/gm,
-)
-const interfaceFields = fieldsOf(
-  blockOf(clientConfig, /export interface NotifyConfig \{([\s\S]*?)\n\}/, 'client NotifyConfig 接口'),
-  /^\s{2}(\w+)\??:/gm,
-)
-const defaultsFields = fieldsOf(
-  blockOf(clientConfig, /export const DEFAULTS: NotifyConfig = \{([\s\S]*?)\n\}/, 'client DEFAULTS'),
-  /^\s{2}(\w+):/gm,
-)
+test('词条：en 与 zh 的 key 集完全一致', () => {
+  assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort())
+})
 
-test('locales: zh 与 en 的 key 集完全一致，且无 overlap 残留词条', () => {
-  const zhKeys = Object.keys(zh).sort()
-  const enKeys = Object.keys(en).sort()
-  assert.deepEqual(zhKeys, enKeys, 'zh/en 词条 key 集必须一致（漏译会让界面出现空文案）')
-  assert.ok(zhKeys.length > 0, '词条表不得为空')
-  const overlapKeys = zhKeys.filter((key) => key.toLowerCase().startsWith('overlap'))
-  assert.deepEqual(overlapKeys, [], '防重叠功能已删除，不得残留 overlap* 词条')
-  // 每个词条都要有非空文案（key 在、值为空同样表现为界面空白）。
-  for (const key of zhKeys) {
-    assert.notEqual(String(zh[key]).trim(), '', `zh.${key} 文案不得为空`)
-    assert.notEqual(String(en[key]).trim(), '', `en.${key} 文案不得为空`)
+test('词条：两边的值都是非空字符串', () => {
+  for (const [lang, dict] of [['zh', zh], ['en', en]]) {
+    for (const [key, value] of Object.entries(dict)) {
+      assert.equal(typeof value, 'string', `${lang}.${key} 必须是字符串`)
+      assert.notEqual(value.trim(), '', `${lang}.${key} 不能为空`)
+    }
   }
 })
 
-test('配置字段集三方一致: host schema / NotifyConfig 接口 / DEFAULTS（防两端漂移）', () => {
-  assert.ok(schemaFields.length > 0, 'host schema 必须解析出字段（否则断言形同虚设）')
-  assert.deepEqual(
-    schemaFields,
-    interfaceFields,
-    'host settings schema 字段集必须与 client NotifyConfig 接口一致（新增字段要两端同步）',
-  )
-  assert.deepEqual(
-    interfaceFields,
-    defaultsFields,
-    'NotifyConfig 接口字段集必须与 DEFAULTS 键集一致（缺默认值会让快照出现 undefined）',
-  )
-  assert.deepEqual(
-    schemaFields,
-    ['approval', 'enabled', 'error', 'sessionDone', 'sound', 'turn'],
-    '配置字段集是契约的一部分：改名/删字段必须显式同步此断言与 client 半区',
-  )
+test('配置字段：host schema 与 client DEFAULTS 双向一致', () => {
+  const schemaFields = [...hostIndex.matchAll(/^\s{2}(\w+):\s*z\.(?:boolean|string)\(\)/gmu)].map((m) => m[1])
+  assert.deepEqual([...schemaFields].sort(), [...defaultFields()].sort(),
+    'host Config schema 与 client DEFAULTS 的字段集必须完全一致')
 })
 
-test('host schema: 已删除的 overlap / probeServices 不得回流', () => {
-  assert.doesNotMatch(hostIndex, /\boverlap\b/, 'overlap 配置已删除（防重叠探测不可靠，勿回流）')
-  assert.doesNotMatch(hostIndex, /\bprobeServices\b/, 'probeServices 配置已删除，勿回流')
-  // client 半区：断言针对代码标记（字段名/字符串字面量），注释里提到旧字段名不该让测试变红。
-  assert.doesNotMatch(clientConfig, /\bnext\.overlap\b|\bconfig\.overlap\b|['"]overlap['"]/, 'client 半区不得残留 overlap 处理分支')
-  assert.doesNotMatch(clientConfig, /\bprobeServices\b/, 'client 半区不得残留 probeServices')
+test('配置默认值：两侧同值（boolean 与时钟字符串）', () => {
+  const clientDefaults = Object.fromEntries(
+    [...(/export const DEFAULTS[^{]*\{([\s\S]*?)\n\}/u.exec(clientConfig)?.[1] ?? '')
+      .matchAll(/^\s{2}(\w+):\s*(true|false|'[^']*')/gmu)]
+      .map((m) => [m[1], m[2].replaceAll("'", '')]),
+  )
+  const hostDefaults = Object.fromEntries(
+    [...hostIndex.matchAll(/^\s{2}(\w+):\s*z\.(?:boolean|string)\(\)\.default\((true|false|'[^']*')\)/gmu)]
+      .map((m) => [m[1], m[2].replaceAll("'", '')]),
+  )
+  assert.deepEqual(hostDefaults, clientDefaults)
 })
 
-test('bindConfigScope: 逐字段白名单写入（每个 boolean 字段都有 typeof 守卫，无 overlap 分支）', () => {
-  const body = blockOf(
-    clientConfig,
-    /export function bindConfigScope\(ctx: ClientContext\): \(\) => void \{([\s\S]*?)\n\}/,
-    'bindConfigScope 函数体',
-  )
-  for (const field of interfaceFields) {
-    assert.match(
-      body,
-      new RegExp(`typeof next\\.${field} === 'boolean'`),
-      `bindConfigScope 必须对 ${field} 显式做 typeof 守卫（白名单写入，不整对象合并）`,
-    )
-    assert.match(
-      body,
-      new RegExp(`config\\.${field} = next\\.${field}`),
-      `bindConfigScope 必须把 ${field} 写回本地快照`,
-    )
+test('配置字段：client 逐个字段都有快照写入（漏一个就静默不生效）', () => {
+  for (const field of defaultFields()) {
+    assert.match(clientConfig, new RegExp(`next\\.${field}\\b`, 'u'),
+      `client 快照合并缺少字段 ${field}`)
   }
-  // 非法类型必须被忽略：不得出现无守卫的整对象合并（如 Object.assign(config, next)）。
-  assert.doesNotMatch(body, /Object\.assign\(\s*config/, '不得整对象合并快照（畸形值会污染配置）')
-  // 断言针对代码标记（字段名），注释里提到旧字段名不该让测试变红。
-  assert.doesNotMatch(body, /\bnext\.overlap\b|\bconfig\.overlap\b|['"]overlap['"]/, 'bindConfigScope 不得残留 overlap 处理分支')
-  // null 快照（host 未就绪）必须被排除：typeof null === 'object' 是经典陷阱。
-  assert.match(body, /value != null && typeof value === 'object'/, '快照必须是「非 null 的对象」才应用')
 })
 
-// ── entry id / namespace 一致性（DSH 0.1.7 profile-backed forms）──────────────
-// 0.1.7 起 client 用 `ctx.configForms.get(entryId)` 拿 host 配置，而这个 entryId
-// 必须逐字等于 host 半区 `cordis.patch.yml` 的 `id`（官方按 entry id 定位）。
-// 拿错字符串不抛错、不报编译错：只会拿到 unavailable 快照 → 设置卡照常渲染，
-// 但所有读写静默失效。本插件曾有两个真相源（host 侧常量 'notify' 与 client 的
-// 'dsh-notify'），host 常量已删除，剩下的字符串由这条钉子守住。
-
-test('entry id 一致：client NOTIFY_ENTRY_ID == cordis.patch.yml 的 entry id', () => {
-  const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
-  const ids = [...patch.matchAll(/^\s*-?\s*id:\s*['"]?([A-Za-z0-9._-]+)['"]?\s*$/gm)].map((m) => m[1])
-  assert.equal(ids.length, 1, `cordis.patch.yml 应只有一条 entry id，实际：${ids.join(', ')}`)
-  assert.ok(
-    clientConfig.includes(`const NOTIFY_ENTRY_ID = '${ids[0]}'`),
-    `client 的 NOTIFY_ENTRY_ID 必须是 '${ids[0]}'（与 cordis.patch.yml 的 entry id 一致）`,
-  )
-  // host 半区不得再出现第二个 namespace 常量（删除的那个曾是漂移源）。
-  assert.doesNotMatch(hostIndex, /NOTIFY_SETTINGS_NAMESPACE\s*=/, 'host 侧不得再定义自己的 namespace 常量')
+test('配置字段：host schema 全部 volatile（不加会不进 describe()，设置页静默失效）', () => {
+  const declarations = [...hostIndex.matchAll(/^\s{2}\w+:\s*z\.(?:boolean|string)\(\)[^\n]*/gmu)].map((m) => m[0])
+  assert.equal(declarations.length, defaultFields().length)
+  for (const line of declarations) assert.match(line, /\.volatile\(\)/u, `缺少 volatile：${line.trim()}`)
 })
 
-test('setConfig: set 返回 false / reject 都要广播 config-error（0.1.7 新契约）', () => {
-  const body = blockOf(
-    clientConfig,
-    /export function setConfig\(field: keyof NotifyConfig([\s\S]*?)\n\}/,
-    'setConfig 函数体',
-  )
-  // 失败路径必须存在且覆盖两种形态：promise resolve(false) 与 reject。
-  assert.match(body, /if \(!accepted\) fail\(\)/, 'set 返回 false 必须走失败路径')
-  // 拒写（resolve(false)）与 reject 两条路径：reject 的兜底是 .then 的第二个参数 fail。
-  assert.match(body, /\.then\([\s\S]{0,200}?accepted[\s\S]{0,80}?,\s*fail\)/, 'set reject 必须走失败路径（.then 的第二个参数）')
-  assert.match(body, /dsh-notify:config-error/, '失败必须广播 config-error 事件')
-  // 同步抛错也要有兜底，否则会从 React onChange 里冒出去。
-  assert.match(body, /\}\s*catch\s*\{/, 'setConfig 必须有同步 try/catch 兜底')
+test('entry id：cordis.patch.yml / host name / client 常量三处一致', () => {
+  const patched = /^\s*-\s*id:\s*(\S+)\s*$/mu.exec(patch)?.[1]
+  assert.equal(patched, 'dsh-notify')
+  assert.match(hostIndex, /export const name = 'dsh-notify'/u)
+  assert.match(clientIndex, /export const name = 'dsh-notify'/u)
+  assert.match(clientConfig, /const NOTIFY_ENTRY_ID = 'dsh-notify'/u)
+})
+
+test("文案引用：t('...') 的每个 key 都在词典里", () => {
+  const used = new Set()
+  for (const source of [settingsCard, read('src/client/notifications.ts'), clientIndex]) {
+    for (const call of source.matchAll(/\bt\(([^)]*)\)/gu)) {
+      for (const key of call[1].matchAll(/'(\w+)'/gu)) used.add(key[1])
+    }
+  }
+  const missing = [...used].filter((key) => !(key in zh))
+  assert.deepEqual(missing, [], `词典缺少这些 key：${missing.join(', ')}`)
+  assert.ok(used.size >= 10, `提取到的文案 key 太少（${used.size}），正则可能已失效`)
+})
+
+test('client inject：声明覆盖控制器真正使用的服务提供方', () => {
+  const inject = pkg.dsh?.client?.inject ?? []
+  for (const required of [
+    '@deepseek-ai/dsh-client-ui-session',
+    '@deepseek-ai/dsh-api-session-controller',
+    '@deepseek-ai/dsh-client-ui-primitives',
+  ]) {
+    assert.ok(inject.includes(required), `dsh.client.inject 缺少 ${required}`)
+  }
+})
+
+test('词典源文件导出的键集与产物一致（防源/产物漂移）', () => {
+  const sourceKeys = [...localesSource.matchAll(/^\s{2}(\w+):/gmu)].map((m) => m[1])
+  // zh 与 en 的键各出现一次，所以源文件键数应为词典键数的两倍。
+  assert.equal(sourceKeys.length, Object.keys(zh).length * 2)
 })

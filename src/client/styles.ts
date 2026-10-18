@@ -40,6 +40,11 @@ export const CSS = `
 .dshn-button:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}
 .dshn-button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .dshn-button:disabled{opacity:.4;cursor:default}
+/* 时段输入：与次要按钮同高同圆角，数字等宽，避免编辑时宽度跳动。 */
+.dshn-clock{display:inline-flex;align-items:center;gap:6px}
+.dshn-clockLabel{font-size:12.5px;color:var(--dsw-alias-label-tertiary)}
+.dshn-input{appearance:none;height:28px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-variant-numeric:tabular-nums;padding:0 8px}
+.dshn-input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .dshn-status{font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-secondary)}
 .dshn-status.dshn-err{color:var(--dsw-alias-label-error)}
 `

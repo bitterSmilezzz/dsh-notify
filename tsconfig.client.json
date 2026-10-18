@@ -27,8 +27,8 @@
     "sourceMap": true,
     "noEmit": false,
     "emitDeclarationOnly": true,
-    "rootDir": "src/client",
-    "outDir": "lib/types/client"
+    "rootDir": "src",
+    "outDir": "lib/types"
   },
   "include": ["src/client/**/*.ts", "src/client/**/*.tsx"]
 }

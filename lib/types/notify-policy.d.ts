@@ -1,9 +1,9 @@
 /**
- * dsh-notify — 通知门控纯函数。
+ * dsh-notify — 通知门控纯函数（host/client 共享，零 I/O、零平台依赖）。
  *
- * 不含任何 I/O 与平台依赖，以便 node --test 直接覆盖：subagent 会话不打扰、
- * 通知正文可读、正文会话身份（会话标题 / 模型名）与 error 去重指纹，都是
- * 可独立判定的纯逻辑。
+ * 这些判定被 node --test 直接覆盖：正文单行化与截断、去重指纹、审批取词、
+ * 免打扰时段判定、跨平台 tag 策略。它们不含 DOM/node API，所以 client 半区
+ * 可以原样 import，测试也能在纯 Node 里跑。
  */
 /** 单行化 + 限长（≤max 码点，尾部 …）。按码点截断而非 UTF-16 code unit：
  *  slice 可能切在代理对中间产生孤立代理（半个 emoji 渲染成 �），
@@ -11,86 +11,106 @@
  *  基字符+变音符组合（如 á = a + U+0301）与 ZWJ emoji 序列仍可能恰在边界被
  *  劈开——截断语义按码点计，仅影响尾部展示，不影响可读性判定。
  *  `text == null`（宽松判等）同时覆盖 undefined 与运行时传入的 null——
- *  host 事件 payload 的字段在旧版协议/畸形数据下可能为 null，绝不能抛错
- *  （通知是增益不是依赖）。 */
+ *  Remote 事件字段在旧版协议/畸形数据下可能为 null，绝不能抛错
+ *  （通知是增益不是依赖）。
+ * @param text - 原始文本（可为空/缺失）。
+ * @param max - 最大码点数，默认 120。
+ * @returns 单行化并截断后的文本；空输入返回空串。
+ */
 export declare function summaryOf(text: string | undefined | null, max?: number): string;
 /**
  * 清理去重 Map 的过期条目。每次事件都先清一遍（不只等 size 到上限）：
  * Map 只保留窗口内的活跃记录，长期运行后不会堆积过期条目；Map 大小
- * 等于窗口内活跃 agent 数（通常个位数），逐条遍历开销可忽略。
- * 纯函数，导出供 node --test 直接覆盖（与 I/O 无关）。
+ * 等于窗口内活跃会话数（通常个位数），逐条遍历开销可忽略。
+ * @param map - 去重表（时间戳）。
+ * @param now - 当前时间戳（毫秒）。
+ * @param windowMs - 去重窗口。
  */
 export declare function pruneExpired(map: Map<string, number>, now: number, windowMs: number): void;
 /**
- * subagent 会话过滤：SessionHeader.origin === 'subagent'（dsh-session 官方判定，
- * 如 session-controller history.js）。subagent 也会打 agent/status/error/disposed
- * 全局事件——通知噪音且深链指向会话列表没有的 id（client 空等超时，点击无响应）。
- * 结构化读取：类型面不可达时 undefined 一律视为主会话（行为与旧版一致）。
- */
-export declare function isSubagent(agent: unknown): boolean;
-/**
- * 通知事件适配层：事件名集中映射，通知逻辑只依赖语义层。
- * 官方未来若改事件名/签名，只改这一处映射，监听器与测试不动。
- */
-export declare const NOTIFY_EVENTS: {
-    /** 轮次完成（running → idle）。 */
-    readonly turnDone: "agent/status";
-    /** 审批请求（waterfall 事件，必须 next() 委托）。 */
-    readonly approval: "approval/request";
-    /** Agent 出错。 */
-    readonly error: "agent/error";
-    /** 会话完成（agent 销毁）。 */
-    readonly sessionDone: "agent/disposed";
-};
-/**
- * 从 agent 载荷读取会话身份标签：优先 `options.model`（AgentOptions 的
- * 模型 id），缺失时回落 `options.provider`。两者都是可选字符串，运行时
- * 旧版协议/畸形 payload 可能连 `options` 都没有——结构化读取，取不到一律
- * 返回 undefined（调用方回落固定文案），绝不抛错（通知是增益不是依赖）。
- */
-export declare function agentModelLabel(agent: unknown): string | undefined;
-/**
- * error 去重指纹：agent id + 消息文本（截断拼接，确定性、无散列依赖）。
- * 同一 agent 的同一错误在去重窗口内只通知一次；不同错误（消息不同）在同一
+ * error 去重指纹：会话 id + 消息文本（截断拼接，确定性、无散列依赖）。
+ * 同一会话的同一错误在去重窗口内只通知一次；不同错误（消息不同）在同一
  * 窗口内各自通知——用户修复后窗口内出现的新错误不再被旧去重键吞掉。
- * 截断只限制极长消息的键长（Map 条目只在窗口内活跃，大小受窗口约束）。
+ * @param sessionId - 会话身份。
+ * @param message - 错误文本。
+ * @returns 去重键。
  */
-export declare function errorDedupKey(agentId: string, message: string): string;
+export declare function errorDedupKey(sessionId: string, message: string): string;
 /**
  * 本地化字典取词：`LocalizedText`（`{ en, [locale] }`），解析顺序
  * 精确 locale 键 → 主子标签键 → `en` → 字典首个非空值。
  *
- * 与官方 `locale.resolveText` 的关系：**同向但有两处刻意差异**（host 半区拿不到
- * 官方 LocaleFace，只能自实现，先记录差异免得日后误以为完全等价）：
+ * 与官方 `locale.resolveText` 同向，但有两处刻意差异（client 半区拿不到
+ * 官方 resolveText 的完整 fallback 链，只能自实现，先记录差异免得日后误以为
+ * 完全等价）：
  * 1. 官方链是「当前 locale（含其声明 fallback，如 zh→en）逐级 `??` 回落」，
  *    且**空串是合法翻译**（`??` 不跳过空串）；这里把空串视作缺失继续回落——
  *    通知正文出现空白条目等于没通知，落到 en 比展示空文本好。
- * 2. 官方链按 LocaleDefinition 的 fallback 声明走（当前只有 zh→en 一条）；
- *    这里简化为「主子标签 → en」，因为 displayReason 的键由各 asker 自填，
- *    不受声明链约束。差异只在「空翻译」与「非声明链 locale」两种边角生效。
+ * 2. 官方链按 LocaleDefinition 的 fallback 声明走；这里简化为「主子标签 → en」，
+ *    因为 displayReason 的键由各 asker 自填，不受声明链约束。
  * 两者共同点是绝不抛错：畸形字典（null / 空值 / 非字符串值）一律继续回落。
- *
- * DSH rc.2 起审批事件带 `displayReason`（本地化提示文本，`reason` 是审计用
- * 原始文本）：通知是给用户读的，应优先展示本地化版本。
  * @param dict - displayReason 字典（运行时可能缺失或畸形）。
  * @param preference - locale settings 的 preference 字段（如 `zh-CN`）。
+ * @returns 取到的非空文本；全都不可用时 undefined。
  */
 export declare function localizedTextOf(dict: unknown, preference: unknown): string | undefined;
 /**
- * 审批通知正文取词：优先 `displayReason`（本地化提示，rc.2 新增），缺失时
+ * 审批通知正文取词：优先 `displayReason`（本地化提示，DSH rc.2 新增），缺失时
  * 回落 `reason`（审计用原始文本，旧版协议与只填 reason 的 asker 都走这条）。
- * 返回 undefined 表示两者都不可用（调用方只展示 toolName）。
+ * @param req - 审批请求（client 侧投影字段）。
+ * @param preference - 当前语言偏好。
+ * @returns 正文可用的提示文本；两者都不可用时 undefined（调用方只展示工具名）。
  */
 export declare function approvalDetailOf(req: {
     reason?: string;
     displayReason?: unknown;
 } | null | undefined, preference: unknown): string | undefined;
 /**
- * 会话身份标签：优先会话标题（用户认得），回落 `options.model`（模型 id）。
- * 两者都是可选字符串——运行时旧版协议/畸形 payload 取不到一律返回
- * undefined，调用方回落固定文案，绝不抛错（通知是增益不是依赖）。
- * @param title - 官方 sessionTitle 服务折叠出的标题（可为空串）。
- * @param agent - agent 载荷（读 options.model / options.provider）。
+ * 会话身份标签：优先会话标题（用户认得），回落 undefined 由调用方用固定文案。
+ * @param title - 会话列表行的标题（`title` 或 `displayTitle`）。
+ * @returns 非空标题；缺失或空串时 undefined。
  */
-export declare function sessionLabelOf(title: string | undefined | null, agent: unknown): string | undefined;
+export declare function sessionLabelOf(title: string | undefined | null): string | undefined;
+/**
+ * 把 `HH:MM` 解析成「当日第几分钟」。
+ * 接受 `9:05` / `09:05` 两种写法（用户在输入框里手打时容易漏前导零），
+ * 非法输入（越界、非数字、缺分隔符）一律返回 undefined——调用方据此把
+ * 免打扰视为未配置，绝不因为一个坏字符串就永久静音（失败方向选「宁可多提醒」）。
+ * @param value - 形如 `HH:MM` 的字符串。
+ * @returns 0..1439 的分钟数；非法时 undefined。
+ */
+export declare function parseClockMinutes(value: string | null | undefined): number | undefined;
+/**
+ * 免打扰时段是否生效。支持跨午夜（如 22:00 → 08:00）：起点大于终点时
+ * 判定区间折返。起止相同视为「未配置」（否则会变成全天静音）。
+ * @param nowMinutes - 当前本地时间「当日第几分钟」（0..1439）。
+ * @param startMinutes - 起点分钟数。
+ * @param endMinutes - 终点分钟数。
+ * @returns 处于免打扰区间时为 true。
+ */
+export declare function quietHoursActive(nowMinutes: number, startMinutes: number, endMinutes: number): boolean;
+/**
+ * 通知的会话级 `tag`：同一会话的新通知替换旧卡，避免并行会话刷屏
+ * （ccnotify / omdsh 的通行做法）。
+ *
+ * **Windows 例外**：社区实测（Zhiyi-Zhao/dsh-notify）带 `tag` 的
+ * `new Notification()` 在 Windows 上会被浏览器接受但 toast 永不送达。
+ * 该结论是单机实测而非普遍规律，但「不弹」比「不替换」代价大得多，
+ * 因此 Windows 一律不发 tag（退化为堆叠），其余平台按会话替换。
+ *
+ * 判据按整词匹配 `win`：`Win32` / `Windows NT …` 命中，而 macOS 的
+ * `Darwin` 不会（`r` 与 `w` 之间没有词边界，`\bwin` 不成立）。
+ * @param platform - `navigator.platform` 或 userAgent 形态的平台串。
+ * @param sessionId - 会话身份。
+ * @returns tag 字符串；Windows 返回 undefined。
+ */
+export declare function notificationTagOf(platform: string, sessionId: string): string | undefined;
+/**
+ * 「一次运行一条通知」的判定：会话从 running 变 idle 才算本轮真正结束。
+ * 中间态（running 仍为 true）不触发，避免多轮 goal / 工具连续调用时刷屏。
+ * @param previous - 上一次观测到的 running 状态（未观测过为 undefined）。
+ * @param next - 本次观测到的 running 状态。
+ * @returns 本次观测构成「一轮结束」时为 true。
+ */
+export declare function isTurnEnd(previous: boolean | undefined, next: boolean | undefined): boolean;
 //# sourceMappingURL=notify-policy.d.ts.map

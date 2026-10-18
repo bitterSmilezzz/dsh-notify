@@ -6,14 +6,20 @@
  * form 的绑定与写入。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis';
-/** 统一配置对象：与 host settings schema 结构一致（字段漂移由测试钉住）。 */
+/** 统一配置对象：与 host Config schema 结构一致（字段漂移由测试钉住）。 */
 export interface NotifyConfig {
     enabled: boolean;
     approval: boolean;
+    question: boolean;
     turn: boolean;
     sessionDone: boolean;
     error: boolean;
+    subagent: boolean;
     sound: boolean;
+    summary: boolean;
+    quietHours: boolean;
+    quietStart: string;
+    quietEnd: string;
 }
 /** 配置默认值（与 host schema 的 default 一致）。 */
 export declare const DEFAULTS: NotifyConfig;

@@ -1,48 +1,94 @@
-/**
- * dsh-notify — locale dictionaries (namespace `notify`).
- * Simplified Chinese is the key-set source of truth; the English dictionary is
- * checked complete against it (test/config-parity.test.mjs 钉住 key 集一致).
- * Product copy is Chinese-first per repo style.
- */
 export declare const zh: {
     masterTitle: string;
     masterDesc: string;
-    groupNotify: string;
+    groupEvents: string;
+    groupGeneral: string;
+    groupQuiet: string;
     notifyTitle: string;
     notifyDesc: string;
     notifyApproval: string;
+    notifyQuestion: string;
     notifyTurn: string;
     notifySessionDone: string;
     notifyError: string;
+    notifySubagent: string;
+    notifySubagentDesc: string;
+    notifySummary: string;
+    notifySummaryDesc: string;
     notifySound: string;
     notifySoundDesc: string;
     notifyTest: string;
-    notifyPermTitle: string;
-    notifyPermDesc: string;
-    notifyPermOpen: string;
+    notifyQuiet: string;
+    notifyQuietDesc: string;
+    notifyQuietStart: string;
+    notifyQuietEnd: string;
+    notifyQuietHint: string;
+    permTitle: string;
+    permDesc: string;
+    permGrant: string;
+    permGranted: string;
+    permDenied: string;
+    permUnsupported: string;
     notifySaveFailed: string;
     expand: string;
     collapse: string;
+    titleApproval: string;
+    titleQuestion: string;
+    titleTurn: string;
+    titleSessionDone: string;
+    titleError: string;
+    titleSubagent: string;
+    bodyTurn: string;
+    bodySessionDone: string;
+    bodyUnknownError: string;
+    approvalToolFallback: string;
+    questionPlanReview: string;
 };
 export declare const en: {
     masterTitle: string;
     masterDesc: string;
-    groupNotify: string;
+    groupEvents: string;
+    groupGeneral: string;
+    groupQuiet: string;
     notifyTitle: string;
     notifyDesc: string;
     notifyApproval: string;
+    notifyQuestion: string;
     notifyTurn: string;
     notifySessionDone: string;
     notifyError: string;
+    notifySubagent: string;
+    notifySubagentDesc: string;
+    notifySummary: string;
+    notifySummaryDesc: string;
     notifySound: string;
     notifySoundDesc: string;
     notifyTest: string;
-    notifyPermTitle: string;
-    notifyPermDesc: string;
-    notifyPermOpen: string;
+    notifyQuiet: string;
+    notifyQuietDesc: string;
+    notifyQuietStart: string;
+    notifyQuietEnd: string;
+    notifyQuietHint: string;
+    permTitle: string;
+    permDesc: string;
+    permGrant: string;
+    permGranted: string;
+    permDenied: string;
+    permUnsupported: string;
     notifySaveFailed: string;
     expand: string;
     collapse: string;
+    titleApproval: string;
+    titleQuestion: string;
+    titleTurn: string;
+    titleSessionDone: string;
+    titleError: string;
+    titleSubagent: string;
+    bodyTurn: string;
+    bodySessionDone: string;
+    bodyUnknownError: string;
+    approvalToolFallback: string;
+    questionPlanReview: string;
 };
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {

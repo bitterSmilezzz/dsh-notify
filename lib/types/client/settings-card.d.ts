@@ -3,12 +3,12 @@
  *
  * 渲染在插件详情页（侧边栏 Plugins 面板 → 本插件 → 配置表单）：页面自己画
  * 标题/图标/面包屑，occupant 按 `view: 'summary' | 'page'` 渲染一行摘要或表单。
- * `view` 缺省（如更早的运行时）时退回自绘折叠外壳兜底。旧契约
- * `settings.plugin.item` 已在 dsh 0.1.6-alpha.2 退役（commit 90af3110b7），
- * 不再注册（见 client/index.ts）。
+ * `view` 缺省（如更早的运行时）时退回自绘折叠外壳兜底。
  *
- * 开关走 config 快照（host settings 为权威源），拨动即写 host（无暂存/保存步）：
+ * 开关走 config 快照（host Config 为权威源），拨动即写 host（无暂存/保存步）：
  * 开关的意图是即时的，不存在官方 staged 文本字段那种「未预览的写入」问题。
+ * 时段输入是唯一的例外——它需要连续编辑（22:00 删成 2:00 不能中途落盘），
+ * 所以在 blur/回车时才提交。
  */
 import * as react from 'react';
 import type { LocaleT } from './locale.ts';
@@ -28,6 +28,7 @@ export type NotifyCardView = 'summary' | 'page';
  *
  * @param props.t - locale 绑定（闭包传入）。
  * @param props.view - 插件详情页传入的视图选择。
+ * @returns 卡片内容。
  */
 export declare function NotifySettingsCard({ t, view }: {
     t: LocaleT;

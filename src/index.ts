@@ -1,60 +1,55 @@
 /**
- * dsh-notify — host half（组合器）。
+ * dsh-notify — host half.
  *
- * 监听 Cordis 事件发系统桌面通知（平台通道见 system-notify.ts，事件编排见
- * notify-events.ts），点击通知跳转浏览器对应会话（client 半区的 deep-link
- * 读取 `#session=`）。
+ * 本插件**不再由 host 发送系统通知**。桌面通知全部由 client 半区的 Web
+ * Notification API 发出（见 `src/client/notifications.ts`）——在 DSH 桌面壳
+ * 里那就是系统原生通知：发送方身份是 App 本身（不是 terminal-notifier /
+ * Script Editor / powershell.exe），且 Electron 壳对非 media 权限一律放行
+ * （apps/desktop/src/microphone-permissions.ts 的 `if (permission !== 'media')
+ * { callback(true); return }`），因此免授权、免签名、免外部二进制。
  *
- * 配置契约：host Config namespace `notify` 为权威源（client 设置卡片与 host
- * 通知逻辑共享同一配置）：
- *   - notify: { enabled, approval, turn, sessionDone, error, sound }
+ * 于是 host 半区只剩一件事：持有 profile-backed 的 Config schema，供官方
+ * 「插件配置表单」读写。通知策略、事件订阅、通道全在 client 半区。
  *
- * DSH 0.1.7 起 settings 走 profile-backed forms 架构：插件在入口模块顶层
- * 导出 `Config`（schemastery 对象）+ `apply(ctx, config)` 函数插件，
- * namespace 由 entry id（`cordis.patch.yml` 的 `id`）提供，Cordis 把校验后的
- * 配置直接注入 apply 第二参。字段全部标 `.volatile()`——没有 volatile 标记的
- * entry 不会进入 `describe()`，官方配置页与 client 写入会静默失效。
- *
- * 聚焦感知：client 半区经官方 Connection RPC 通道上报页面可见性，可见时
- * 抑制「轮次完成 / 会话完成」这类非阻塞通知（见 notify-events.ts 分级说明）。
- *
- * connection / sessionTitle / webServer 都是可选能力，一律 `ctx.get` /
- * scoped inject 读取，缺失时优雅降级（通知是增益不是依赖）。
+ * 配置契约（DSH 0.1.7 起 profile-backed forms）：入口模块顶层导出
+ * `Config`（schemastery 对象）+ `apply(ctx, config)` 函数插件，namespace 由
+ * entry id（`cordis.patch.yml` 的 `id: dsh-notify`）提供。字段全部标
+ * `.volatile()`——没有 volatile 标记的 entry 不会进入 `describe()`，官方配置页
+ * 与 client 写入会静默失效。
  */
 import type { Volatile } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-settings'
-import type {} from '@deepseek-ai/dsh-user-approval'
 import z from '@deepseek-ai/schemastery';
-import { applySystemNotify, type NotifyConfig } from './notify-events.ts'
 
 /**
- * 配置 namespace 由 **profile entry id** 提供（DSH 0.1.7 profile-backed forms）：
- * host 半区不自己命名，`cordis.patch.yml` 的 `id: dsh-notify` 就是 namespace，
- * client 半区用同一个字符串 `configForms.get('dsh-notify')`。
- *
- * 这里**不再导出**自己的 namespace 常量——0.1.4 之前的 `ctx.settings.register(ns, ...)`
- * 需要它，0.1.7 上游 API 移除后它就成了第二个真相源（此前的 `'notify'` 与 entry id
- * `'dsh-notify'` 已经分叉，而它没有任何调用方）。两处字符串的一致性改由
- * `test/config-parity.test.mjs` 的 entry-id 钉住（与 dsh-asr-voice 同一套做法）。
+ * 配置 namespace 由 **profile entry id** 提供：host 半区不自己命名，
+ * `cordis.patch.yml` 的 `id: dsh-notify` 就是 namespace，client 半区用同一个
+ * 字符串 `configForms.get('dsh-notify')`。两处字符串的一致性由
+ * `test/config-parity.test.mjs` 钉住。
  */
 
 export const name = 'dsh-notify'
 
-/** Host plugin configuration：通知总开关与各事件分项开关。 */
+/** Host plugin configuration：通知总开关、各事件开关、免打扰时段与摘要开关。 */
 export interface Config {
   enabled: Volatile<boolean>
   approval: Volatile<boolean>
+  question: Volatile<boolean>
   turn: Volatile<boolean>
   sessionDone: Volatile<boolean>
   error: Volatile<boolean>
+  subagent: Volatile<boolean>
   sound: Volatile<boolean>
+  summary: Volatile<boolean>
+  quietHours: Volatile<boolean>
+  quietStart: Volatile<string>
+  quietEnd: Volatile<string>
 }
 
 /**
- * 顶层 Config：全部字段 volatile，桌面通知的所有开关都支持不重启热改。
- * 默认全开（`enabled` 为总开关，取消勾选后保留分项值）。
+ * 顶层 Config：全部字段 volatile，所有开关都支持不重启热改。
+ * 默认除子代理完成外全开（`enabled` 为总开关，取消勾选后保留分项值）；
+ * 免打扰默认关闭。
  *
  * volatile 字段在运行时是 `Volatile<T>` 引用（官方 `plainOptions()` 同款语义：
  * 每次读 `.get()` 拿当前值，热改后无需重挂插件），所以接口字段标 Volatile。
@@ -64,30 +59,28 @@ export interface Config {
 export const Config = z.object({
   enabled: z.boolean().default(true).volatile(),
   approval: z.boolean().default(true).volatile(),
+  question: z.boolean().default(true).volatile(),
   turn: z.boolean().default(true).volatile(),
   sessionDone: z.boolean().default(true).volatile(),
   error: z.boolean().default(true).volatile(),
+  subagent: z.boolean().default(false).volatile(),
   sound: z.boolean().default(true).volatile(),
+  summary: z.boolean().default(true).volatile(),
+  quietHours: z.boolean().default(false).volatile(),
+  quietStart: z.string().default('22:00').volatile(),
+  quietEnd: z.string().default('08:00').volatile(),
 })
 
-export function apply(ctx: Context, config: Config): void {
-  // 系统级桌面通知：监听 Cordis 事件，读 config 判断开关。
-  // volatile 字段每次显式解引用，所以热改后同一份闭包拿到的是最新值。
-  const notifyConfig = (): NotifyConfig => ({
-    enabled: config.enabled.get(),
-    approval: config.approval.get(),
-    turn: config.turn.get(),
-    sessionDone: config.sessionDone.get(),
-    error: config.error.get(),
-    sound: config.sound.get(),
-  })
-  // 深链基址：惰性读 webServer 实际监听端口（官方 dsh-web-app 同款读取），每次通知
-  // 都重新解析——apply 早于 webServer 就绪、或用 --port 起非默认端口时，
-  // 一次性快照会永久停在回落值、点击跳转静默失效。
-  const baseUrlOf = (): string => {
-    const webServer = ctx.get('webServer') as { port?: unknown } | undefined
-    const port = typeof webServer?.port === 'number' && webServer.port > 0 ? webServer.port : 3080
-    return `http://127.0.0.1:${port}`
-  }
-  applySystemNotify(ctx, notifyConfig, baseUrlOf)
+/**
+ * Host 半区不参与通知投递：这里刻意什么都不做。
+ *
+ * 保留 `apply` 是 Loader 的函数插件形态要求（named export `apply`），也让
+ * 后续需要 host 侧事实（如后台 job 计数）时有落点；当前没有任何 host 侧
+ * 副作用，因而也没有需要随 fiber 回收的注册。
+ *
+ * @param _ctx - host context（当前未使用）。
+ * @param _config - 校验后的 volatile 配置（当前未使用）。
+ */
+export function apply(_ctx: Context, _config: Config): void {
+  /* 通知的订阅与投递全在 client 半区（见 src/client/）。 */
 }
