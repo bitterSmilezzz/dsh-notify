@@ -183,7 +183,11 @@ export function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): 
   /** 上一次观测到的 running / pendingInteraction key。 */
   const running = new Map<string, boolean | undefined>()
   const pendingKeys = new Map<string, string>()
-  /** 会话标题与子代理标记的最后已知值：行被移除后（会话结束）仍要用它们判定。 */
+  /**
+   * 会话标题与子代理标记的最后已知值：行被移除后（会话结束）仍要用它们判定
+   * 「是不是子代理」与「正文写什么」。生命周期与行绑定——会话被移除时清掉，
+   * 所以表的大小上界是「当前列表里的会话数」，不会随历史会话无界增长。
+   */
   const knownLabels = new Map<string, string>()
   const knownSubagent = new Map<string, boolean>()
   const platform = platformOf()
@@ -406,12 +410,15 @@ export function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): 
           running.delete(lost)
           pendingKeys.delete(lost)
           // 子代理不在这里拦：`notify` 会把它的类别归一成 `subagent`，由该开关决定。
+          // 缓存必须在 `notify` 之后清——它内部还要用这两个标记（行已不在快照里）。
           notify({
             kind: 'sessionDone',
             sessionId: lost,
             title: runtime.t('titleSessionDone'),
             body: bodyWith(runtime.config(), label, runtime.t('bodySessionDone')),
           })
+          knownLabels.delete(lost)
+          knownSubagent.delete(lost)
         }
         previous = next
       } catch { /* 观察失败静默 */ }

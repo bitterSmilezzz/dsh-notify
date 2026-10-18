@@ -235,6 +235,20 @@ test('会话被移除：打开 subagent 开关后子代理结束也提醒', () =
   assert.match(notifications.instances[0].options.body, /子代理任务/)
 })
 
+test('会话身份缓存随行回收：移除后的迟到事件回落短 id，不沿用旧标题', () => {
+  const { harness, notifications } = setup({ rows: [{ id: 'session-abc', title: '旧标题' }] })
+  // 会话结束：这一条仍应使用最后已知标题。
+  harness.setSessions([])
+  assert.equal(titles(notifications).at(-1), 'titleSessionDone')
+  assert.match(notifications.instances.at(-1).options.body, /旧标题/)
+  // 迟到的错误事件：行已不在快照里，缓存也已随行回收 → 回落短 id。
+  const before = notifications.instances.length
+  harness.pushError('session-abc', 'boom')
+  assert.equal(notifications.instances.length, before + 1)
+  assert.match(notifications.instances.at(-1).options.body, /session-/)
+  assert.doesNotMatch(notifications.instances.at(-1).options.body, /旧标题/)
+})
+
 test('tag：macOS 按会话替换，Windows 一律不发（社区实测带 tag 不达）', () => {
   const mac = setup()
   mac.harness.pushError('s1', 'boom')
