@@ -2,7 +2,7 @@
  * dsh-notify — browser half entry (single fiber).
  *
  * 组合：通知控制器（Web Notification 通道，见 notifications.ts）、设置卡片、
- * 通知声音试听、URL deep-link。配置由 host Config 持有（config.ts）。
+ * URL deep-link。配置由 host Config 持有（config.ts）。
  *
  * 设置卡片注册到官方 `plugins.bundle.config` 契约（插件详情页）。旧契约
  * `settings.plugin.item` 已在 dsh 0.1.6-alpha.2 退役（commit 90af3110b7），
@@ -31,7 +31,7 @@ import { applySessionDeepLink } from './deep-link.ts'
 
 export { zh, en }
 
-/** 设置 namespace（host settings 的 entry id）。 */
+/** locale 词条 namespace（与 host Config 的 entry id `dsh-notify` 是两件事）。 */
 const NS = 'notify'
 
 /** 包名（`plugins.bundle.config` 的 key：bundle 的 package name）。 */
@@ -61,17 +61,18 @@ export function apply(ctx: ClientContext): void {
     return () => tag.remove()
   }, 'dsh-notify: styles')
 
-  // locale 服务在 apply 顶层捕获：回调里再读 ctx.locale 会撞 inactive context。
+  // locale 服务与 bind 结果都在 apply 顶层捕获：回调里再读 ctx.locale 会撞
+  // inactive context，而 `t` 也只建一次（每次 bind 都会新建闭包）。
   const locale = ctx.locale
+  const t = locale.bind(NS)
   const runtime: NotifyRuntime = {
     // 每次显式读全局快照，热改配置后无需重挂控制器。
     config: () => ({ ...config }),
-    t: ctx.locale.bind(NS),
+    t,
     activeLocale: () => locale.getLocale().active,
   }
   applyNotifications(ctx, runtime)
 
-  const t = ctx.locale.bind(NS)
   const card = (props: NotifyCardOwnerProps) => jsxRuntime.jsx(NotifySettingsCard, { t, view: props?.view })
 
   // 设置卡片（plugins.bundle.config，keyed by package name；
