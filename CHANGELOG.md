@@ -6,6 +6,60 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.4.0] - 2026-10-18
+
+**破坏性变更：通知通道整体替换。** 旧版本由 host 侧 spawn 本地命令发通知
+（`terminal-notifier` → `osascript` 兜底 / PowerShell WinRT toast / `notify-send`），
+点击通知用带进程 token 的 URL 打开浏览器。这套做法在桌面 App 上是错的：
+
+- 通知的发送方身份是 **terminal-notifier / Script Editor / powershell.exe**，不是 DSH
+  本身，系统通知设置里也管不到这个"App"；
+- macOS 26 起 `terminal-notifier` 的点击 API（`NSUserNotification`）被系统弃用，
+  代码自己降级成不可点击的 `osascript` 横幅；
+- 点击通知会**打开浏览器新标签页**，而不是回到用户正在用的桌面 App。
+
+0.4.0 改用**渲染进程的 Web Notification API**：在桌面 App 里它就是系统原生通知，
+发送方是 App 本身；DSH 壳对非 media 权限一律放行
+（`apps/desktop/src/microphone-permissions.ts` 的 `if (permission !== 'media') { callback(true); return }`），
+因此免授权、免签名、免外部二进制；点击回调直接在 App 内 `sessions.open(id)`。
+
+### 变更
+
+- **通知通道**：host spawn（4 个平台分支 + 兜底链 + 临时 .ps1 生命周期 + PATH 探测）
+  整体删除，改为 client 侧 `new Notification()`。删除 `system-notify.ts`、
+  `notify-events.ts`、`presence.ts`、`presence-route.ts`、`notify-text.ts`。
+- **事件源改用官方 client 缝**：`ctx.uiSession.sessionStatus`（`running` /
+  `pendingInteraction` / `completionUnread`）判轮次完成与审批/提问，
+  `ctx.remote.$on('api-session/error')` 判出错，`ctx.sessions.list` 判会话结束与子代理。
+  自建的 `/api/dsh-notify/presence` 聚焦上报路由随之删除——运行时本来就知道主视图
+  在哪个会话（`completionUnread` 正是官方为「后台跑完」计算的事实）。
+- **新增事件**：提问（`question`，含 plan-review 形态）与子代理完成（`subagent`，默认关闭）。
+- **新增免打扰时段**：起止时间支持跨午夜；时段内只静音轮次完成/会话结束/子代理，
+  审批、提问与出错属阻塞性或故障类，始终送达。时间串非法时按「未配置」处理
+  （宁可多提醒，不可静默）。
+- **新增隐私开关**「正文显示详情」：关闭后横幅只显示会话名。
+- **设置卡片**补充权限行与「发一条测试通知」按钮（浏览器侧 `requestPermission()`
+  必须在用户手势里调用）。
+- **声音语义修正**：旧版在 macOS 上只能做「Glass vs 系统默认音」，不是静音；
+  现由 `Notification.silent` 实现真静音。试听用的 Web Audio 合成（`client/sound.ts`）
+  随之成为死代码并删除。
+- **文案**：通知标题=事件类型、正文=`会话名 · 细节`（业界收敛形态）；会话标识优先
+  会话标题，缺失回落短 id（旧版回落模型名）。
+- **依赖线**：`@deepseek-ai/dsh-*` 由 `^0.2.0-rc.2` 提升至 `^0.2.1-rc.2`（`ctx.uiSession`
+  的状态面依赖该线），`@deepseek-ai/cordis` 提至 `~4.0.5`。移除已不再引用的
+  `dsh-agent` / `dsh-user-approval` / `dsh-settings` / `dsh-client-connection` /
+  `dsh-client-ui-settings-plugins`。
+- **host 半区**只剩 volatile Config schema；通知策略、事件订阅、投递全在 client 半区。
+
+### 测试
+
+- 重写为三层：纯函数（20 条）、契约漂移守卫（10 条）、**行为测试**（26 条）——
+  在纯 Node 里加载真实的 `lib/client.js` 产物，配假 `Notification` 与假 `ctx`，
+  断言事件 → 投递的完整链路（审批/提问不重复弹、按会话替换、聚焦与主视图抑制、
+  免打扰豁免、子代理过滤、隐私与声音开关、点击跳转、Windows 不发 tag、
+  以及「会话被移除后子代理标记仍要判对」这条缓存回归）。
+- 全量 78 条通过；`pnpm typecheck`（双 program）与 `pnpm build` 均 EXIT 0。
+
 ## [0.3.7] - 2026-09-29
 
 ### 变更

@@ -30,6 +30,13 @@ import z from '@deepseek-ai/schemastery';
 
 export const name = 'dsh-notify'
 
+/**
+ * Host 半区没有硬依赖的服务：配置注入由 Loader 直接交给 apply 第二参，
+ * 通知逻辑全在 client 半区。空数组也必须**显式导出**——伞仓库准入契约
+ * （`validate-plugin.mjs` 的 `[inject]` 项）按存在性检查这一声明。
+ */
+export const inject: string[] = []
+
 /** Host plugin configuration：通知总开关、各事件开关、免打扰时段与摘要开关。 */
 export interface Config {
   enabled: Volatile<boolean>

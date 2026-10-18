@@ -168,7 +168,10 @@ export function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): 
   const sessions = ctx.get('sessions') as unknown as SessionsLike | undefined
   const uiSession = ctx.get('uiSession') as unknown as UiSessionLike | undefined
   const remote = ctx.get('remote') as unknown as RemoteLike | undefined
-  if (sessions === undefined || uiSession === undefined) return
+  // 组合可能缺少会话控制器或 ui-session（自定义 profile）：此时插件退化为只有
+  // 设置卡，绝不抛错——client 入口抛错会让桌面壳判定启动失败。
+  if (sessions === undefined || typeof sessions.list?.getSnapshot !== 'function') return
+  if (uiSession === undefined || typeof uiSession.sessionStatus?.subscribe !== 'function') return
 
   /** 已发出的通知（按会话）：既用于替换，也持有引用防 GC。 */
   const live = new Map<string, { notification: Notification; at: number }>()
@@ -369,7 +372,7 @@ export function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): 
   }), 'dsh-notify: session status subscription')
 
   // ── 2. 会话错误 ─────────────────────────────────────────────────────────
-  if (remote !== undefined) {
+  if (remote !== undefined && typeof remote.$on === 'function') {
     ctx.effect(() => remote.$on('api-session/error', (sessionId, message) => {
       try {
         const cfg = runtime.config()
