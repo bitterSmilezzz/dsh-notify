@@ -229,6 +229,16 @@ test('点击通知：uiWorkspace 缺失时回落到旧版 sessions.open', () => 
   assert.deepEqual(harness.opened, ['s1'], '旧版组合仍能跳转')
 })
 
+test('点击通知：导航服务晚于本插件激活时仍能跳转（服务按点击时解析）', () => {
+  // `ctx.get` 只返回 ACTIVE 提供方的值；apply 时缓存服务会把「此刻还没有」
+  // 永久固化成 undefined，于是插件装上了却永远点不动——这条钉子钉住运行期解析。
+  const { harness, notifications } = setup({ lateUiWorkspace: true })
+  harness.pushError('s1', 'boom')
+  harness.activateUiWorkspace()
+  notifications.instances[0].click()
+  assert.deepEqual(harness.opened, ['s1'])
+})
+
 test('点击通知：导航入口全缺时不抛错，只给可见提示', () => {
   const { harness, notifications } = setup({ withoutUiWorkspace: true })
   harness.pushError('s1', 'boom')

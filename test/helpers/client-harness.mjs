@@ -165,7 +165,12 @@ export function makeClientContext(options = {}) {
   }
   // 当前形态：sessions 没有 open()，导航在 uiWorkspace 上。
   if (options.legacyNavigation === true) sessions.open = (id) => { opened.push(id) }
-  const uiWorkspace = options.legacyNavigation === true || options.withoutUiWorkspace === true
+  /**
+   * 导航服务。`lateUiWorkspace` 让它**先缺席、之后才就绪**——复刻
+   * `ui-workspace` 激活顺序晚于本插件的组合；此时任何「apply 时缓存服务」
+   * 的实现都会把 undefined 永久留在闭包里。
+   */
+  let uiWorkspace = options.legacyNavigation === true || options.withoutUiWorkspace === true || options.lateUiWorkspace === true
     ? undefined
     : { openSession: (id) => { opened.push(id) } }
   const statusListeners = new Set()
@@ -212,6 +217,10 @@ export function makeClientContext(options = {}) {
     effects,
     /** 全部导航调用（`uiWorkspace.openSession` 或旧版 `sessions.open`）。 */
     opened,
+    /** 让 `uiWorkspace` 在 apply 之后才出现（复刻晚激活的组合）。 */
+    activateUiWorkspace() {
+      uiWorkspace = { openSession: (id) => { opened.push(id) } }
+    },
     /** 设置会话列表（触发 list 订阅者）。 */
     setSessions(rows) {
       sessions.rows = rows
