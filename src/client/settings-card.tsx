@@ -15,6 +15,7 @@ import * as react from 'react'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { IconChevronDownOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { config, setConfig } from './config.ts'
+import { previewNoticeSound } from './sound.ts'
 import {
   notificationPermission, requestNotificationPermission, sendTestNotification,
 } from './notifications.ts'
@@ -71,7 +72,10 @@ function PermissionRow({ t }: { t: LocaleT }) {
     void requestNotificationPermission().then((next) => {
       setState(next)
       // 授权成功后立刻给一条真实回执：用户能当场确认通道通了。
-      if (next === 'granted') sendTestNotification(t('titleTurn'), t('notifyTest'), config.sound)
+      if (next === 'granted') {
+        sendTestNotification(t('titleTurn'), t('notifyTest'), config.sound)
+        previewNoticeSound('turn')
+      }
     })
   }
   const text = state === 'granted'
@@ -149,7 +153,11 @@ function NotifyForm({ t }: { t: LocaleT }) {
             <button
               type="button"
               className="dshn-button"
-              onClick={() => { sendTestNotification(t('titleTurn'), t('masterTitle'), config.sound) }}
+              onClick={() => {
+                // 试听同时验证两条通道：横幅（通知权限）与音效（AudioContext）。
+                sendTestNotification(t('titleTurn'), t('masterTitle'), config.sound)
+                previewNoticeSound('turn')
+              }}
             >
               {t('notifyTest')}
             </button>

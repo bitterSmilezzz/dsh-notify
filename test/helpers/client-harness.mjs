@@ -65,8 +65,43 @@ export function loadClientBundle(options = {}) {
   FakeNotification.instances = []
   FakeNotification.requestPermission = async () => FakeNotification.permission
 
+  // 假 AudioContext：只记录「播了哪些音、什么时候播」，够断言音色与节流。
+  const audio = { played: [], created: 0, closed: 0, resumed: 0 }
+  class FakeAudioContext {
+    constructor() {
+      audio.created += 1
+      this.state = 'running'
+      this.currentTime = 0
+      this.destination = { name: 'destination' }
+    }
+    resume() { audio.resumed += 1; this.state = 'running'; return Promise.resolve() }
+    close() { audio.closed += 1; this.state = 'closed'; return Promise.resolve() }
+    createOscillator() {
+      const osc = {
+        type: 'sine',
+        frequency: { value: 0 },
+        connect: (target) => target,
+        start: (at) => { audio.played.push({ frequency: osc.frequency.value, type: osc.type, at }) },
+        stop: () => {},
+        addEventListener: () => {},
+      }
+      return osc
+    }
+    createGain() {
+      return {
+        gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+        connect: (target) => target,
+        disconnect: () => {},
+      }
+    }
+  }
+  if (options.audio !== false) install('AudioContext', FakeAudioContext)
+
   const listeners = new Map()
   const windowStub = {
+    // 浏览器里 `window.AudioContext` 与全局 AudioContext 是同一个对象；
+    // 假环境的 window 是独立 stub，必须同样挂上，否则被测代码取不到构造器。
+    ...(options.audio === false ? {} : { AudioContext: FakeAudioContext }),
     __ModuleLoader__: { load: ({ factory }) => { bundleFactory = factory } },
     addEventListener: (type, fn) => { listeners.set(type, fn) },
     removeEventListener: (type) => { listeners.delete(type) },
@@ -117,6 +152,7 @@ export function loadClientBundle(options = {}) {
   return {
     exports: bundleFactory(stubRequire),
     notifications: FakeNotification,
+    audio,
     globals: { window: windowStub, document: documentStub },
     restore: () => {
       for (const [key, descriptor] of saved) {

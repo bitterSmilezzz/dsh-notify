@@ -24,11 +24,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   approvalDetailOf, errorDedupKey, isTurnEnd, notificationTagOf, parseClockMinutes,
-  pruneExpired, quietHoursActive, sessionLabelOf, summaryOf,
+  pruneExpired, quietHoursActive, sessionLabelOf, summaryOf, systemSoundSuppressed,
 } from '../notify-policy.ts'
 import type { NotifyConfig } from './config.ts'
 import type { LocaleT } from './locale.ts'
 import type { OpenSession } from './navigation.ts'
+import { playNoticeSound } from './sound.ts'
 
 /** 通知正文最大长度（超出截断加 …），保持系统横幅一行可读。 */
 const BODY_MAX = 96
@@ -278,10 +279,14 @@ export function applyNotifications(
       const notification = new Notification(notice.title, {
         body: notice.body,
         ...(tag === undefined ? {} : { tag }),
-        silent: !cfg.sound,
+        // 系统声一律静音：音色由本插件合成（Web Notification 无法指定音色），
+        // 叠加系统声会变成双声，「关闭声音」也关不掉系统那一份。
+        silent: systemSoundSuppressed(),
         // 审批与提问是阻塞性的：留在通知中心等用户处理，其余自动消失。
         requireInteraction: kind === 'approval' || kind === 'question',
       })
+      // 音效在通知构造之后播放：构造失败（权限撤销等）就不该只响一声没有横幅。
+      playNoticeSound(kind, cfg.sound)
       live.set(notice.sessionId, { notification, at: Date.now() })
       notification.onclick = () => {
         release(notice.sessionId)

@@ -186,3 +186,72 @@ export function notificationTagOf(platform: string, sessionId: string): string |
 export function isTurnEnd(previous: boolean | undefined, next: boolean | undefined): boolean {
   return previous === true && next === false
 }
+
+/** 通知音效的事件类别（与通知条目的 kind 同一套词表）。 */
+export type NoticeKind = 'approval' | 'question' | 'turn' | 'sessionDone' | 'error' | 'subagent'
+
+/** 合成音的波形（`OscillatorType` 的子集；本模块 host 侧也编译，故不引用 DOM 类型）。 */
+export type ToneWave = 'sine' | 'triangle' | 'square' | 'sawtooth'
+
+/** 一个合成音：频率、起始偏移、时长、波形与增益。 */
+export interface Tone {
+  /** 频率（赫兹）。 */
+  readonly frequency: number
+  /** 相对本组起点的偏移（秒）。 */
+  readonly start: number
+  /** 持续时长（秒）。 */
+  readonly duration: number
+  /** 波形。 */
+  readonly wave: ToneWave
+  /** 峰值增益（0-1）。 */
+  readonly gain: number
+}
+
+/**
+ * 各类事件的通知音色。
+ *
+ * 设计约束：同类事件复用一个 motif（用户记住的是「听起来像什么」，不是乐谱），
+ * 不同类别靠音高走向与节奏区分轻重：
+ *   - 需要动手的（审批/提问）上行、双音、时长偏长——最容易被注意到；
+ *   - 故障（出错）下行小三度，听感下沉；
+ *   - 高频的（轮次完成）单音轻响，避免长时间使用后烦躁；
+ *   - 收束类（会话结束）双音下行；
+ *   - 子代理与轮次完成同款但更轻（它默认关闭，开启后也不该喧宾夺主）。
+ *
+ * 全部 ≤0.6s：通知音是提示不是铃声，长音会与语音/会议冲突。
+ */
+export const SOUND_PATTERNS: Readonly<Record<NoticeKind, readonly Tone[]>> = {
+  approval: [
+    { frequency: 784, start: 0, duration: 0.14, wave: 'sine', gain: 0.16 },
+    { frequency: 1047, start: 0.16, duration: 0.26, wave: 'sine', gain: 0.16 },
+  ],
+  question: [
+    { frequency: 784, start: 0, duration: 0.14, wave: 'sine', gain: 0.16 },
+    { frequency: 1047, start: 0.16, duration: 0.26, wave: 'sine', gain: 0.16 },
+  ],
+  turn: [
+    { frequency: 880, start: 0, duration: 0.16, wave: 'sine', gain: 0.12 },
+  ],
+  sessionDone: [
+    { frequency: 659, start: 0, duration: 0.14, wave: 'sine', gain: 0.13 },
+    { frequency: 523, start: 0.16, duration: 0.24, wave: 'sine', gain: 0.13 },
+  ],
+  error: [
+    { frequency: 440, start: 0, duration: 0.16, wave: 'triangle', gain: 0.16 },
+    { frequency: 349, start: 0.18, duration: 0.3, wave: 'triangle', gain: 0.16 },
+  ],
+  subagent: [
+    { frequency: 880, start: 0, duration: 0.16, wave: 'sine', gain: 0.08 },
+  ],
+}
+
+/**
+ * 通知是否应静音系统声。
+ *
+ * 打开音效时静音系统声（只响自绘那一份，不叠成双声）；关闭音效时同样静音
+ * ——否则「关闭声音」只关掉了自绘音，系统提示音照响，开关语义就错了。
+ * @returns 恒为 true：声音完全由本插件的合成音承担。
+ */
+export function systemSoundSuppressed(): boolean {
+  return true
+}

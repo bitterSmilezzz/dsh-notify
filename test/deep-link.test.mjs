@@ -41,7 +41,7 @@ test('deep-link 解析：特殊字符经 URL 编码往返一致', () => {
 // deep-link 读全局 window（setTimeout/location/history/addEventListener），
 // 测试注入假对象并在 finally 恢复；ctx 只暴露 effect/get 两个面。
 
-function setupFake(sessions, initialLocation = { search: '?token=t1', hash: '#session=abc', href: 'http://127.0.0.1:3080/?token=t1#session=abc' }) {
+function setupFake(sessions, initialLocation = { search: '?token=t1', hash: '#session=abc', href: 'http://127.0.0.1:3080/?token=fixture-token-not-a-credential' }) {
   const calls = { timers: [], cleared: 0, replaceState: 0, listeners: [], warns: [] }
   let timerId = 0
   const win = {
@@ -203,7 +203,7 @@ test('hashchange 重入：已开标签点击通知（仅 fragment 变化）触�
   }
   const s = setupFake(sessions, {
     // 加载时地址没有 session：首次 attempt 为 no-op。
-    search: '?token=t1', hash: '', href: 'http://127.0.0.1:3080/?token=t1',
+    search: '?token=t1', hash: '', href: 'http://127.0.0.1:3080/?token=fixture-token-not-a-credential',
   })
   try {
     applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
@@ -232,7 +232,7 @@ test('hashchange 无 session 时 no-op（粘贴无会话的 fragment 不误跳�
         getSnapshot: () => ({ byId: {} }),
       },
     },
-    { search: '?token=t1', hash: '', href: 'http://127.0.0.1:3080/?token=t1' },
+    { search: '?token=t1', hash: '', href: 'http://127.0.0.1:3080/?token=fixture-token-not-a-credential' },
   )
   try {
     applySessionDeepLink(s.ctx, createOpenSession(s.ctx))

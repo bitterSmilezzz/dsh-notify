@@ -29,6 +29,7 @@ import { applyNotifications, type NotifyRuntime } from './notifications.ts'
 import { NotifySettingsCard, type NotifyCardView } from './settings-card.tsx'
 import { applySessionDeepLink } from './deep-link.ts'
 import { createOpenSession } from './navigation.ts'
+import { mountSoundWarmup } from './sound.ts'
 
 export { zh, en }
 
@@ -72,6 +73,10 @@ export function apply(ctx: ClientContext): void {
     t,
     activeLocale: () => locale.getLocale().active,
   }
+  // 音效预热：浏览器不让没有用户手势的页面出声，所以首次交互时创建/恢复
+  // AudioContext；disposer 随 fiber 回收监听与 context。
+  ctx.effect(() => mountSoundWarmup(), 'dsh-notify: sound warmup')
+
   // 会话导航入口（点击通知 / deep-link 共用）：运行期解析，兼容
   // `uiWorkspace.openSession`（0.2）与旧版 `sessions.open`，见 navigation.ts。
   const openSession = createOpenSession(ctx)

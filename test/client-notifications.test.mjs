@@ -194,14 +194,18 @@ test('隐私开关：summary 关闭时正文只留会话名', () => {
   assert.doesNotMatch(notifications.instances[0].options.body, /boom-secret/)
 })
 
-test('声音开关：关闭时通知带 silent', () => {
+test('声音开关不再投影到 silent：系统声恒静，音色由插件合成', () => {
+  // 旧行为是 silent: !sound（把「响不响」交给系统）。Web Notification 无法指定
+  // 音色，所以音效改由 sound.ts 合成，系统声一律静音——否则开关关不掉系统那一份。
+  // 音色、节流与静默降级的断言见 sound.test.mjs。
   const loud = setup()
   loud.harness.pushError('s1', 'boom')
-  assert.equal(loud.notifications.instances[0].options.silent, false)
+  assert.equal(loud.notifications.instances[0].options.silent, true)
 
   const quiet = setup({ config: { sound: false } })
   quiet.harness.pushError('s1', 'boom')
-  assert.equal(quiet.notifications.instances[0].options.silent, true)
+  assert.equal(quiet.notifications.instances[0].options.silent, true, '关闭后同样静音系统声')
+  assert.equal(quiet.notifications.instances.length, 1, '关闭声音不影响横幅送达')
 })
 
 test('点击通知：聚焦窗口并打开对应会话，随后释放持有引用', () => {

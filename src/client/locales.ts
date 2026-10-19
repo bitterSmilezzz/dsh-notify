@@ -32,8 +32,8 @@ export const zh = {
   notifySummaryDesc: '关闭后正文只显示会话名，不把工作内容带到横幅上',
 
   notifySound: '通知声音',
-  notifySoundDesc: '关闭后通知静音送达',
-  notifyTest: '发一条测试通知',
+  notifySoundDesc: '按事件区分音色：审批上行、出错下行、完成轻响',
+  notifyTest: '试听：发一条测试通知',
 
   notifyQuiet: '开启免打扰时段',
   notifyQuietDesc: '该时段内不弹「轮次完成/会话完成/子代理」提醒；审批、提问与出错不受影响',
@@ -87,8 +87,8 @@ export const en = {
   notifySummaryDesc: 'When off, the body shows only the session name instead of work content',
 
   notifySound: 'Notification sound',
-  notifySoundDesc: 'When off, notifications are delivered silently',
-  notifyTest: 'Send a test notification',
+  notifySoundDesc: 'Distinct tones per event: approvals rise, errors fall, completions stay light',
+  notifyTest: 'Preview: send a test notification',
 
   notifyQuiet: 'Enable quiet hours',
   notifyQuietDesc: 'No turn-end, session-end, or subagent alerts during this window; approvals, questions, and errors still arrive',
