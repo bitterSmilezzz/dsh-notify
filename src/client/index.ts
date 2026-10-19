@@ -28,6 +28,7 @@ import { bindConfigScope, config } from './config.ts'
 import { applyNotifications, type NotifyRuntime } from './notifications.ts'
 import { NotifySettingsCard, type NotifyCardView } from './settings-card.tsx'
 import { applySessionDeepLink } from './deep-link.ts'
+import { createOpenSession } from './navigation.ts'
 
 export { zh, en }
 
@@ -71,7 +72,10 @@ export function apply(ctx: ClientContext): void {
     t,
     activeLocale: () => locale.getLocale().active,
   }
-  applyNotifications(ctx, runtime)
+  // 会话导航入口（点击通知 / deep-link 共用）：运行期解析，兼容
+  // `uiWorkspace.openSession`（0.2）与旧版 `sessions.open`，见 navigation.ts。
+  const openSession = createOpenSession(ctx)
+  applyNotifications(ctx, runtime, openSession)
 
   const card = (props: NotifyCardOwnerProps) => jsxRuntime.jsx(NotifySettingsCard, { t, view: props?.view })
 
@@ -84,7 +88,7 @@ export function apply(ctx: ClientContext): void {
   }, card))
 
   // URL deep-link：`#session=<id>` / `?session=<id>` 直达对应会话
-  applySessionDeepLink(ctx)
+  applySessionDeepLink(ctx, openSession)
 }
 
 export const name = 'dsh-notify'

@@ -20,6 +20,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis';
 import type { NotifyConfig } from './config.ts';
 import type { LocaleT } from './locale.ts';
+import type { OpenSession } from './navigation.ts';
 /** 通知文案与配置的读取面（由组合器注入）。 */
 export interface NotifyRuntime {
     /** 当前配置快照。 */
@@ -51,6 +52,7 @@ export declare function sendTestNotification(title: string, body: string, sound:
  *
  * @param ctx - client root context。
  * @param runtime - 配置与文案读取面。
+ * @param openSession - 打开会话（点击通知时的导航入口，见 navigation.ts）。
  */
-export declare function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): void;
+export declare function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime, openSession: OpenSession): void;
 //# sourceMappingURL=notifications.d.ts.map

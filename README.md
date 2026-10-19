@@ -7,7 +7,8 @@
 ## 功能
 
 - **六类事件分别开关**：审批（`approval`）/ 提问（`question`）/ 轮次完成（`turn`）/ 会话结束（`sessionDone`）/ 出错（`error`）/ 子代理完成（`subagent`，默认关）
-- **点击回到会话**：通知点击 → 聚焦窗口 + 在 App 内切到该会话（不再打开浏览器标签页）
+- **点击回到会话**：通知点击 → 聚焦窗口 + 在 App 内切到该会话（不再打开浏览器标签页）。
+  导航走官方 `uiWorkspace.openSession`；DSH 0.1.x 的组合回落到 `sessions.open`
 - **按会话聚合**：同一会话的新通知替换上一张卡，并行会话各自独立卡（Windows 除外，见「已知风险」）
 - **只在看不见时打扰**：运行时已判定「后台会话跑完」或窗口不在前台时才提醒；正看着那个会话时不打扰。审批与提问是阻塞性的，**始终送达**
 - **免打扰时段**：可设起止时间（支持跨午夜）；时段内只静音轮次完成 / 会话结束 / 子代理，审批、提问与出错不受影响
@@ -61,6 +62,8 @@ client 半区只读取官方事件与状态（`ctx.uiSession.sessionStatus`、`a
 - **多个客户端同时在线时会各弹一次**（桌面窗口 + 浏览器标签页）：去重是客户端本地的，跨客户端没有仲裁。
 - **免打扰时段按本机时间判定**，跨时区/手动改表期间以当前系统时间为准。
 - 若 profile 未装配 `dsh-client-ui-session`（自定义组合），插件会退化为「只有设置卡、不发通知」，不会报错。
+- **导航入口缺失时只聚焦不跳转**：`uiWorkspace`（0.2 起）与旧版 `sessions.open` 都没有的组合下，
+  点击通知仍会聚焦窗口并关闭卡片，跳转失败在开发者控制台留一条 `[dsh-notify]` 提示。
 
 ## 开发
 
@@ -76,8 +79,10 @@ pnpm test        # node --test test/*.test.mjs
 源码结构（host）：`index.ts` 组合器与 volatile Config schema；`notify-policy.ts` 纯策略
 （截断、去重键、本地化取词、时钟解析、免打扰判定、tag 策略）。
 
-源码结构（client）：`notifications.ts` 事件订阅与投递控制器；`config.ts` 配置快照与写路径；
-`settings-card.tsx` 设置卡片；`locales.ts` 文案；`deep-link.ts` URL 深链。
+源码结构（client）：`notifications.ts` 事件订阅与投递控制器；`navigation.ts` 会话导航缝
+（点击通知 / deep-link 共用，`uiWorkspace.openSession`，缺失时回落旧版 `sessions.open`）；
+`config.ts` 配置快照与写路径；`settings-card.tsx` 设置卡片；`locales.ts` 文案；
+`deep-link.ts` URL 深链。
 
 测试分三层：`notify-policy.test.mjs`（纯函数）、`config-parity.test.mjs`（契约漂移守卫）、
 `client-notifications.test.mjs`（**行为测试**：在 Node 里加载真实的 `lib/client.js` 产物，

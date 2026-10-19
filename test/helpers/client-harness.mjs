@@ -129,8 +129,16 @@ export function loadClientBundle(options = {}) {
 
 /**
  * 造一个只实现控制器真正调用面的假 client context。
- * @param {{config?: object}} [options] - 初始 host 配置快照。
- * @returns {{ctx: object, uiSession: object, sessions: object, remote: object, pushed: object}}
+ *
+ * 导航服务按**当前** DSH 形态装配：`ctx.uiWorkspace.openSession`（0.2 起唯一的
+ * 会话导航入口），`ctx.sessions` 只留列表、**没有** `open()`——旧版才有。传
+ * `{ legacyNavigation: true }` 反过来装配 0.1.x 形态（sessions.open、无
+ * uiWorkspace），用来钉住回退路径。
+ *
+ * @param {{config?: object, legacyNavigation?: boolean, withoutUiWorkspace?: boolean}} [options]
+ *   `config` 覆盖初始 host 配置快照；`legacyNavigation` 装配 0.1.x 导航面；
+ *   `withoutUiWorkspace` 装配「两个导航入口都没有」的组合，用来看退出行为。
+ * @returns {{ctx: object, uiSession: object, sessions: object, remote: object, opened: string[], pushed: object}}
  */
 export function makeClientContext(options = {}) {
   const state = {
@@ -141,10 +149,11 @@ export function makeClientContext(options = {}) {
       ...(options.config ?? {}),
     },
   }
+  /** 所有导航调用记录在这里（两个入口共用，断言不关心走的是哪条）。 */
+  const opened = []
   const sessions = {
     rows: [],
     ids: [],
-    opened: [],
     listListeners: new Set(),
     list: {
       getSnapshot: () => ({
@@ -153,8 +162,12 @@ export function makeClientContext(options = {}) {
       }),
       subscribe: (listener) => { sessions.listListeners.add(listener); return () => sessions.listListeners.delete(listener) },
     },
-    open: (id) => { sessions.opened.push(id) },
   }
+  // 当前形态：sessions 没有 open()，导航在 uiWorkspace 上。
+  if (options.legacyNavigation === true) sessions.open = (id) => { opened.push(id) }
+  const uiWorkspace = options.legacyNavigation === true || options.withoutUiWorkspace === true
+    ? undefined
+    : { openSession: (id) => { opened.push(id) } }
   const statusListeners = new Set()
   let snapshot = new Map()
   const uiSession = {
@@ -180,7 +193,7 @@ export function makeClientContext(options = {}) {
   }
   const ctx = {
     effect: (fn) => { effects.push(fn()); return () => {} },
-    get: (name) => ({ sessions, uiSession, remote })[name],
+    get: (name) => ({ sessions, uiSession, remote, uiWorkspace })[name],
     slots: { inject: (_name, cb) => cb(), register: () => () => {} },
     locale: {
       register: () => () => {},
@@ -197,6 +210,8 @@ export function makeClientContext(options = {}) {
     remote,
     state,
     effects,
+    /** 全部导航调用（`uiWorkspace.openSession` 或旧版 `sessions.open`）。 */
+    opened,
     /** 设置会话列表（触发 list 订阅者）。 */
     setSessions(rows) {
       sessions.rows = rows

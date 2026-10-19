@@ -16,6 +16,7 @@
  * 是改动最小的可见通道）。
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis';
+import type { OpenSession } from './navigation.ts';
 /**
  * 从当前地址提取 deep-link 的会话 id：先读 `#session=` fragment（rc.1 token
  * 鉴权后的新形态，303 重定向保留 fragment），再回落 `?session=` 查询参数
@@ -33,6 +34,7 @@ export declare function clearSessionParam(): void;
  * hash 里没有 session 时 attempt 直接 no-op。effect 的 disposer 同时
  * 移除 hashchange 监听并回收在途等待，随 client fiber 卸载。
  * @param ctx - client root context。
+ * @param openSession - 打开会话的导航入口（见 navigation.ts）。
  */
-export declare function applySessionDeepLink(ctx: ClientContext): void;
+export declare function applySessionDeepLink(ctx: ClientContext, openSession: OpenSession): void;
 //# sourceMappingURL=deep-link.d.ts.map

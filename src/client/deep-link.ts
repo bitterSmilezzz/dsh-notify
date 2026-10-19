@@ -19,13 +19,13 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: keeps the session controller in the type graph (the sessions
 // service this module reads via ctx.get, not a hard inject).
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { OpenSession } from './navigation.ts'
 
 /** deep-link 等待会话出现的最大时长（毫秒）。 */
 const LINK_TIMEOUT_MS = 15_000
 
-/** sessions 服务的最小面（仅 deep-link 需要）。 */
+/** sessions 服务的最小面（仅 deep-link 需要；导航走 openSession，见 navigation.ts）。 */
 interface SessionsLinkLike {
-  open(sid: string): void
   list: { subscribe(listener: () => void): () => void; getSnapshot(): { byId: Record<string, unknown> } }
 }
 
@@ -62,22 +62,21 @@ export function clearSessionParam(): void {
  * hash 里没有 session 时 attempt 直接 no-op。effect 的 disposer 同时
  * 移除 hashchange 监听并回收在途等待，随 client fiber 卸载。
  * @param ctx - client root context。
+ * @param openSession - 打开会话的导航入口（见 navigation.ts）。
  */
-export function applySessionDeepLink(ctx: ClientContext): void {
+export function applySessionDeepLink(ctx: ClientContext, openSession: OpenSession): void {
   ctx.effect(() => {
     // sessions 是可选依赖：不 declare inject（设置卡片等核心功能不依赖会话
     // 控制器，硬注入会让整个 client 半区等它就绪），运行期经 ctx.get 读取。
     // 缺失/未挂载时防御性退出，不清理 URL：服务恢复后下次加载仍有机会跳转。
     const sessions = ctx.get('sessions') as unknown as SessionsLinkLike | undefined
-    if (typeof sessions?.open !== 'function' || typeof sessions?.list?.subscribe !== 'function' || typeof sessions?.list?.getSnapshot !== 'function') {
+    if (typeof sessions?.list?.subscribe !== 'function' || typeof sessions?.list?.getSnapshot !== 'function') {
       return () => {}
     }
     /** 打开会话并清除 deep-link 痕迹。open 失败（会话已销毁等）不清 URL：
      *  保留痕迹让用户可刷新/重试，console.warn 给出可见提示（不静默落首页）。 */
     const openAndClear = (sid: string): void => {
-      try {
-        sessions.open(sid)
-      } catch {
+      if (!openSession(sid)) {
         console.warn(`[dsh-notify] 会话 ${sid} 打开失败：URL 已保留，刷新可重试`)
         return
       }

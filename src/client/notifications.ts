@@ -28,6 +28,7 @@ import {
 } from '../notify-policy.ts'
 import type { NotifyConfig } from './config.ts'
 import type { LocaleT } from './locale.ts'
+import type { OpenSession } from './navigation.ts'
 
 /** 通知正文最大长度（超出截断加 …），保持系统横幅一行可读。 */
 const BODY_MAX = 96
@@ -56,13 +57,12 @@ interface SessionRowLike {
   retainedBy?: { mainView?: number }
 }
 
-/** `ctx.sessions` 的最小面。 */
+/** `ctx.sessions` 的最小面（导航不在这里，见 navigation.ts）。 */
 interface SessionsLike {
   list: {
     getSnapshot(): { ids: string[]; byId: Record<string, SessionRowLike> }
     subscribe(listener: () => void): () => void
   }
-  open(id: string): void
 }
 
 /** 单个会话的官方 UI 状态。 */
@@ -161,8 +161,13 @@ export function sendTestNotification(title: string, body: string, sound: boolean
  *
  * @param ctx - client root context。
  * @param runtime - 配置与文案读取面。
+ * @param openSession - 打开会话（点击通知时的导航入口，见 navigation.ts）。
  */
-export function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): void {
+export function applyNotifications(
+  ctx: ClientContext,
+  runtime: NotifyRuntime,
+  openSession: OpenSession,
+): void {
   // activation safety：服务对象在 apply 时一次性取出。回调里再走 `ctx.<service>`
   // 会撞上「inactive context」，在桌面壳里会升级成启动失败。
   const sessions = ctx.get('sessions') as unknown as SessionsLike | undefined
@@ -281,7 +286,10 @@ export function applyNotifications(ctx: ClientContext, runtime: NotifyRuntime): 
       notification.onclick = () => {
         release(notice.sessionId)
         try { window.focus() } catch { /* 浏览器可能拒绝聚焦 */ }
-        try { sessions.open(notice.sessionId) } catch { /* 会话已销毁 */ }
+        // 导航入口缺失或拒绝时不抛错：通知已送达，点击失败只留一条可见提示。
+        if (!openSession(notice.sessionId)) {
+          console.warn(`[dsh-notify] 会话 ${notice.sessionId} 打开失败：导航入口不可用`)
+        }
         try { notification.close() } catch { /* 已关闭 */ }
       }
       notification.onclose = () => { release(notice.sessionId) }

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 // 直连 src（node 26 原生 type-stripping；本模块只依赖 node 内建与类型擦除）。
 const mod = await import('../src/client/deep-link.ts')
 const { sessionIdFromLocation, applySessionDeepLink } = mod
+const { createOpenSession } = await import('../src/client/navigation.ts')
 
 test('deep-link 解析：优先 #session= fragment（rc.1 token 鉴权新形态）', () => {
   // token 交换后浏览器落在 `/`，fragment 被 303 重定向保留。
@@ -63,9 +64,15 @@ function setupFake(sessions, initialLocation = { search: '?token=t1', hash: '#se
   // 超时/失败的可见提示走 console.warn（client 无 toast），测试捕获并断言。
   globalThis.console.warn = (msg) => { calls.warns.push(String(msg)) }
   let disposer = null
+  // 假环境的 `open` 接到**当前**官方导航入口 `uiWorkspace.openSession`
+  // （0.2 起 `ctx.sessions` 已没有 open()）；各用例仍只描述「打开哪个会话」，
+  // 不必关心服务名叫什么。
   const ctx = {
     effect: (fn) => { disposer = fn(); return disposer },
-    get: (name) => name === 'sessions' ? sessions : undefined,
+    get: (name) => {
+      if (name === 'uiWorkspace') return sessions?.open === undefined ? undefined : { openSession: sessions.open }
+      return name === 'sessions' ? sessions : undefined
+    },
   }
   return {
     calls,
@@ -93,7 +100,7 @@ test('applySessionDeepLink: subscribe 同步抛错不炸 fiber，timer 回调不
   })
   try {
     // subscribe 抛错前 timer 已注册、unsub 尚未赋值——apply 必须把异常吞掉。
-    assert.doesNotThrow(() => applySessionDeepLink(s.ctx))
+    assert.doesNotThrow(() => applySessionDeepLink(s.ctx, createOpenSession(s.ctx)))
     assert.equal(s.calls.timers.length, 1, 'timer 已注册')
     // 触发 timer 回调：unsub 未赋值必须安全跳过（TDZ 防御），且不清理 URL
     //（与 sessions 缺失一致：保留痕迹，刷新可重试）。
@@ -121,7 +128,7 @@ test('applySessionDeepLink: 会话未出现时超时后 unsub、console 提示�
     },
   })
   try {
-    applySessionDeepLink(s.ctx)
+    applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
     assert.equal(s.calls.timers.length, 1)
     s.runTimer()
     assert.equal(unsubbed, 1, '超时后解除订阅')
@@ -144,7 +151,7 @@ test('applySessionDeepLink: 快照已含会话时立即打开并清理 URL，不
     },
   })
   try {
-    applySessionDeepLink(s.ctx)
+    applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
     assert.equal(opened, 'abc')
     assert.equal(s.calls.replaceState, 1, '跳转后清理 URL')
     assert.equal(s.calls.timers.length, 0, '不注册超时 timer')
@@ -157,7 +164,7 @@ test('applySessionDeepLink: 快照已含会话时立即打开并清理 URL，不
 test('applySessionDeepLink: sessions 服务缺失时安全退出（不注册 timer、不清理 URL）', () => {
   const s = setupFake(undefined)
   try {
-    assert.doesNotThrow(() => applySessionDeepLink(s.ctx))
+    assert.doesNotThrow(() => applySessionDeepLink(s.ctx, createOpenSession(s.ctx)))
     assert.equal(s.calls.timers.length, 0)
     assert.equal(s.calls.replaceState, 0, 'URL 保留供下次加载重试')
     assert.doesNotThrow(() => s.dispose())
@@ -175,7 +182,7 @@ test('applySessionDeepLink: open 抛错时保留 URL 并 console 提示（不静
     },
   })
   try {
-    applySessionDeepLink(s.ctx)
+    applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
     assert.equal(s.calls.replaceState, 0, 'open 失败不清 URL，保留痕迹可重试')
     assert.equal(s.calls.warns.length, 1, 'open 失败有 console 提示')
     assert.ok(s.calls.warns[0].includes('打开失败'), '提示说明失败原因')
@@ -199,7 +206,7 @@ test('hashchange 重入：已开标签点击通知（仅 fragment 变化）触�
     search: '?token=t1', hash: '', href: 'http://127.0.0.1:3080/?token=t1',
   })
   try {
-    applySessionDeepLink(s.ctx)
+    applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
     assert.equal(opened, null, '加载时无 session 不跳转')
     assert.equal(s.calls.timers.length, 0, '无 session 不注册 timer')
     assert.equal(s.calls.listeners.filter((l) => l.type === 'hashchange').length, 1, 'hashchange 监听已注册')
@@ -228,7 +235,7 @@ test('hashchange 无 session 时 no-op（粘贴无会话的 fragment 不误跳�
     { search: '?token=t1', hash: '', href: 'http://127.0.0.1:3080/?token=t1' },
   )
   try {
-    applySessionDeepLink(s.ctx)
+    applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
     s.win.location.hash = '#foo=1'
     s.emitHashchange()
     assert.equal(s.calls.timers.length, 0, 'hash 无 session 不注册 timer')
@@ -254,7 +261,7 @@ test('hashchange 重入幂等：新尝试先回收上一次的等待（timer 清
   }
   const s = setupFake(sessions)
   try {
-    applySessionDeepLink(s.ctx)
+    applySessionDeepLink(s.ctx, createOpenSession(s.ctx))
     assert.equal(subscribed, 1, '首次 attempt 订阅等待')
     assert.equal(s.calls.timers.length, 1)
     // 等待中会话出现且 fragment 换成新 id：旧等待必须被回收再跳转。

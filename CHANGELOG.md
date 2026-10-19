@@ -6,6 +6,22 @@
 
 本 CHANGELOG 自 0.1.10 起建立并回填：0.1.10 之前的历史以 GitHub Release 与 git tag 为准。
 
+## [0.4.1] - 2026-10-19
+
+### 修复
+
+- **点击通知只把窗口拉到前台，不切到对应会话。** 0.4.0 的点击回调调用
+  `ctx.sessions.open(id)`——DSH 0.2 把会话导航移到了 `uiWorkspace.openSession`，
+  `ctx.sessions` 不再有 `open()`（0.1.x 才有）。调用落在 `try/catch` 里，抛出的
+  `TypeError` 被静默吞掉，于是窗口聚焦成功、会话却停在原处。URL 深链
+  （`#session=` / `?session=`）走的是同一处调用，因此一并失效。
+- 导航抽成 `src/client/navigation.ts`：优先官方 `uiWorkspace.openSession`，回落旧版
+  `sessions.open`，两者都缺失时返回失败而不是抛错。服务在**每次点击时**解析而非
+  apply 时缓存——`ui-workspace` 的激活顺序不早于本插件时，缓存会把 `undefined`
+  永久留在闭包里。
+- 跳转失败不再无声：点击与 deep-link 各留一条 `console.warn`（通知卡片仍照常关闭，
+  通知回调绝不冒泡）；deep-link 失败时保留 URL 供刷新重试。
+
 ## [0.4.0] - 2026-10-18
 
 **破坏性变更：通知通道整体替换。** 旧版本由 host 侧 spawn 本地命令发通知

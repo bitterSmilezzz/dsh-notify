@@ -208,8 +208,33 @@ test('点击通知：聚焦窗口并打开对应会话，随后释放持有引�
   const { harness, notifications, bundle } = setup()
   harness.pushError('s1', 'boom')
   notifications.instances[0].click()
-  assert.deepEqual(harness.sessions.opened, ['s1'])
+  assert.deepEqual(harness.opened, ['s1'])
   assert.equal(bundle.globals.window.focused, true)
+})
+
+test('点击通知走 uiWorkspace.openSession（0.2 起的官方导航入口）', () => {
+  // 回归：0.1.x 的 `sessions.open()` 在 0.2 已被移除，旧实现直接调用它会在
+  // try/catch 里静默 TypeError——窗口被拉到前台，会话却停在原处。
+  const { harness, notifications } = setup()
+  harness.pushError('s1', 'boom')
+  notifications.instances[0].click()
+  assert.deepEqual(harness.opened, ['s1'], '导航必须到达 uiWorkspace.openSession')
+  assert.equal(harness.sessions.open, undefined, '当前形态的 sessions 没有 open()')
+})
+
+test('点击通知：uiWorkspace 缺失时回落到旧版 sessions.open', () => {
+  const { harness, notifications } = setup({ legacyNavigation: true })
+  harness.pushError('s1', 'boom')
+  notifications.instances[0].click()
+  assert.deepEqual(harness.opened, ['s1'], '旧版组合仍能跳转')
+})
+
+test('点击通知：导航入口全缺时不抛错，只给可见提示', () => {
+  const { harness, notifications } = setup({ withoutUiWorkspace: true })
+  harness.pushError('s1', 'boom')
+  assert.doesNotThrow(() => notifications.instances[0].click(), '点击回调绝不冒泡')
+  assert.deepEqual(harness.opened, [], '没有入口就不跳')
+  assert.equal(notifications.instances[0].closed, true, '通知照常关闭')
 })
 
 test('会话被移除：弹「会话已结束」通知', () => {
