@@ -1,6 +1,16 @@
-# @bittersmilezzz/dsh-notify
+# 桌面通知（Desktop Notifications）· dsh-notify
 
-**桌面通知（Desktop Notifications）** —— DeepSeek Harness (DSH) 的桌面通知：需要审批 / 需要你回答 / 轮次完成 / 会话结束 / Agent 出错时弹系统原生通知，**点击通知直接回到对应会话**。
+**DeepSeek Harness (DSH) 的桌面通知插件**：需要审批 / 需要你回答 / 轮次完成 / 会话结束 / Agent 出错时弹系统原生通知，**点击通知直接回到对应会话**。
+
+[![npm](https://img.shields.io/npm/v/@bittersmilezzz/dsh-notify)](https://www.npmjs.com/package/@bittersmilezzz/dsh-notify)
+[![license](https://img.shields.io/github/license/bitterSmilezzz/dsh-notify)](LICENSE)
+[![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-blue)](https://github.com/topics/dsh-plugin)
+
+- **仓库**：[github.com/bitterSmilezzz/dsh-notify](https://github.com/bitterSmilezzz/dsh-notify)
+- **npm**：[@bittersmilezzz/dsh-notify](https://www.npmjs.com/package/@bittersmilezzz/dsh-notify)
+- **问题反馈**：[Issues](https://github.com/bitterSmilezzz/dsh-notify/issues)
+- **更新日志**：[CHANGELOG.md](CHANGELOG.md)
+- **伞仓库（契约与校验）**：[bitterSmilezzz/dsh-plugins](https://github.com/bitterSmilezzz/dsh-plugins)
 
 通知由渲染进程的 Web Notification API 发出——在桌面 App 里那就是系统原生通知，**发送方身份是 App 本身**，不需要 terminal-notifier / osascript / PowerShell 之类的外部程序，也不需要额外授权或签名。
 
@@ -36,8 +46,13 @@ dsh plugin --profile <profile> add <path-to-repo>
 
 **安装/升级插件后需重启宿主生效；开关调整即时生效（拨动即写，无需保存）。**
 
+### 兼容性
+
 要求 DSH `0.2.1-rc.2` 及以上（用到 `ctx.uiSession.sessionStatus` 的
-`running` / `pendingInteraction` / `completionUnread` 三个事实）。
+`running` / `pendingInteraction` / `completionUnread` 三个事实，以及
+`ctx.uiWorkspace.openSession` 会话导航入口）。
+
+Node.js `^22.19.0 || >=24.0.0`。
 
 ## 外部依赖
 
@@ -46,13 +61,24 @@ dsh plugin --profile <profile> add <path-to-repo>
 - 桌面 App（Electron）：DSH 壳对非 media 权限一律放行（`apps/desktop/src/microphone-permissions.ts`），因此 `Notification.permission` 恒为 `granted`，无授权弹窗，不依赖 App 签名或公证；
 - 浏览器：首次需要一次用户手势，设置卡片的「开启通知」按钮负责这一步。
 
-生命周期脚本：**无**（无 preinstall/install/postinstall/prepare）。
+运行时依赖：**零**（官方 `@deepseek-ai/*` 包全部声明为 `peerDependencies`，由宿主的模块表提供）。
+
+生命周期脚本：**无**（无 preinstall/install/postinstall/prepare，安装时不执行任何构建或第三方代码）。
 
 ## 权限
 
-**权限等级：low**：插件不落盘、不 spawn 子进程、不发起外部网络请求、不读用户文件与会话数据。
+**权限等级：`low`**：插件不落盘、不 spawn 子进程、不发起外部网络请求、不读用户文件与会话数据。
 client 半区只读取官方事件与状态（`ctx.uiSession.sessionStatus`、`api-session/error`、`ctx.sessions.list`），
 并通过 Web Notification 通道投递；host 半区只持有一份 volatile 配置 schema，没有任何副作用。
+
+| 能力 | 是否使用 |
+| --- | --- |
+| 文件读写 | 否 |
+| 子进程 / Shell | 否 |
+| 网络请求 | 否 |
+| 凭据访问 | 否 |
+| 读取会话内容 | 否（只读会话标题与运行状态） |
+| 系统通知 | 是（Web Notification） |
 
 ## 已知风险
 
@@ -65,15 +91,36 @@ client 半区只读取官方事件与状态（`ctx.uiSession.sessionStatus`、`a
 - **导航入口缺失时只聚焦不跳转**：`uiWorkspace`（0.2 起）与旧版 `sessions.open` 都没有的组合下，
   点击通知仍会聚焦窗口并关闭卡片，跳转失败在开发者控制台留一条 `[dsh-notify]` 提示。
 
+## 分发渠道
+
+本插件通过以下公开渠道分发，主分发形态是 **npm 预构建包**（安装时无需构建）：
+
+| 渠道 | 状态 |
+| --- | --- |
+| npm | [@bittersmilezzz/dsh-notify](https://www.npmjs.com/package/@bittersmilezzz/dsh-notify) |
+| GitHub | [bitterSmilezzz/dsh-notify](https://github.com/bitterSmilezzz/dsh-notify)（每版打 tag） |
+| awesome-dsh-plugin | 社区策展列表（`data/plugins/bitterSmilezzz__dsh-notify.yml`） |
+| DSH-Store | 第三方商城，遵循[目录准入规则](https://github.com/AI-Scarlett/dsh-safe-plugin-manager/blob/main/registry/README.md) |
+| dsh-market | 内置插件市场（读取同一份 catalog） |
+
+**DSH-Store 准入自检**：固定源（40 位 commit）/ manifest 与 tag 一致 / 入口 ID 唯一且不动任何
+`@deepseek-ai/*` 官方组件 / 无生命周期脚本 / 权限等级 `low` 已披露 / `npm run validate:registry` 通过。
+校验脚本：
+
+```bash
+npm run validate:registry
+```
+
 ## 开发
 
 标准双半区结构，`lib/` 为构建产物：
 
 ```bash
 pnpm install
-pnpm typecheck   # 双 program（host + client），纯检查不产出
-pnpm build       # tsc host + tsc client 声明 + tsdown client bundle
-pnpm test        # node --test test/*.test.mjs
+pnpm typecheck          # 双 program（host + client），纯检查不产出
+pnpm build              # tsc host + tsc client 声明 + tsdown client bundle
+pnpm test               # node --test test/*.test.mjs
+pnpm validate:registry  # DSH-Store 准入自检
 ```
 
 源码结构（host）：`index.ts` 组合器与 volatile Config schema；`notify-policy.ts` 纯策略

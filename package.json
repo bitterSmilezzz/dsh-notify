@@ -28,7 +28,8 @@
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "validate:registry": "node scripts/validate-registry.mjs"
   },
   "license": "MIT",
   "keywords": [
@@ -37,7 +38,8 @@
     "deepseek-harness",
     "notify",
     "notification",
-    "desktop"
+    "desktop",
+    "desktop-notifications"
   ],
   "repository": {
     "type": "git",
@@ -52,7 +54,8 @@
     "registry": "https://registry.npmjs.org/"
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": "^0.2.1-rc.2"
   },
   "dsh": {
     "bundle": {
