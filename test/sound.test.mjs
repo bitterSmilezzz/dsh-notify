@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadClientBundle, makeClientContext } from './helpers/client-harness.mjs'
 import { SOUND_PATTERNS } from '../src/notify-policy.ts'
+import { sendTestNotification } from '../src/client/notifications.ts'
 
 /** 装载一份全新的插件实例 + 假环境。 */
 function setup(options = {}) {
@@ -63,6 +64,38 @@ test('关闭声音时通知同样 silent（关掉的是「有没有声音」，�
   const { harness, notifications } = setup({ config: { sound: false } })
   harness.pushError('s1', 'boom')
   assert.equal(notifications.instances[0].options.silent, true)
+})
+
+test('试听通知与真实通知一致：恒 silent，不叠系统提示音', () => {
+  // 试听走 sendTestNotification。真实通知恒带 silent（音色由插件合成），
+  // 试听若带 silent: false，Windows 上会「系统提示音 + 插件合成音」双响，
+  // 而且听到的和实际收到的不是一回事——预览必须忠实于产品。
+  const sent = []
+  const realNotification = globalThis.Notification
+  const realWindow = globalThis.window
+  globalThis.Notification = class {
+    static permission = 'granted'
+    static requestPermission = async () => 'granted'
+    constructor(title, options) {
+      sent.push({ title, options })
+      this.onclick = null
+    }
+    close() {}
+  }
+  globalThis.window = { ...realWindow, focus: () => {} }
+  try {
+    // 声音开关开着：也必须静音系统声——音色由插件合成那一份负责。
+    assert.equal(sendTestNotification('t', 'b'), true)
+    assert.equal(sent.length, 1, '应投递一条试听通知')
+    assert.equal(sent[0].options.silent, true, '试听必须与真实通知一致地恒 silent')
+    // 连点几次用同一个 tag：后一条替换前一条，不在通知中心堆一排一样的卡。
+    sendTestNotification('t', 'b')
+    assert.equal(sent.length, 2)
+    assert.equal(sent[1].options.tag, sent[0].options.tag, '试听通知用固定 tag')
+  } finally {
+    globalThis.Notification = realNotification
+    globalThis.window = realWindow
+  }
 })
 
 test('节流：同类音效 300ms 内只响一次，不同类别互不影响', () => {

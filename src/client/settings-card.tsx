@@ -73,7 +73,7 @@ function PermissionRow({ t }: { t: LocaleT }) {
       setState(next)
       // 授权成功后立刻给一条真实回执：用户能当场确认通道通了。
       if (next === 'granted') {
-        sendTestNotification(t('titleTurn'), t('notifyTest'), config.sound)
+        sendTestNotification(t('titleTurn'), t('notifyTest'))
         previewNoticeSound('turn')
       }
     })
@@ -155,7 +155,7 @@ function NotifyForm({ t }: { t: LocaleT }) {
               className="dshn-button"
               onClick={() => {
                 // 试听同时验证两条通道：横幅（通知权限）与音效（AudioContext）。
-                sendTestNotification(t('titleTurn'), t('masterTitle'), config.sound)
+                sendTestNotification(t('titleTurn'), t('masterTitle'))
                 previewNoticeSound('turn')
               }}
             >

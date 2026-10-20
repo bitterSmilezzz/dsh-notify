@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   approvalDetailOf, errorDedupKey, isTurnEnd, noticePriorityOf, notificationTagOf, parseClockMinutes,
   pruneExpired, quietHoursActive, replacesPreviousNotice, sessionLabelOf, summaryOf, systemSoundSuppressed,
-  type NoticePriority,
+  tagSupportedBy, type NoticePriority,
 } from '../notify-policy.ts'
 import type { NotifyConfig } from './config.ts'
 import type { LocaleT } from './locale.ts'
@@ -142,15 +142,25 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 /**
  * 发一条测试通知（设置卡按钮用；同时消化掉浏览器对 requestPermission 的
  * 用户手势要求）。
+ *
+ * ⚠ 与真实通知**完全一致**的两点，否则「试听」听到的和实际收到的不是一回事：
+ *  1. **恒带 `silent`**：真实通知一律静音系统声（音色由本插件合成），试听
+ *     也必须静音。否则 Windows 上会「系统提示音 + 插件合成音」同时响——双声，
+ *     而且跟真实体验对不上（真实通知没有系统声那一份）。
+ *  2. **用固定的测试 tag**：连点几次「试听」时后一条替换前一条，不在通知
+ *     中心里堆一排一样的测试卡。
  * @param title - 通知标题。
  * @param body - 通知正文。
- * @param sound - 是否发声。
  * @returns 实际投递成功时为 true。
  */
-export function sendTestNotification(title: string, body: string, sound: boolean): boolean {
+export function sendTestNotification(title: string, body: string): boolean {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
   try {
-    const notification = new Notification(title, { body, silent: !sound })
+    const notification = new Notification(title, {
+      body,
+      silent: systemSoundSuppressed(),
+      ...(tagSupportedBy(platformOf()) ? { tag: 'dsh-notify:test' } : {}),
+    })
     notification.onclick = () => { try { window.focus() } catch { /* 聚焦可能被拒绝 */ } }
     return true
   } catch {
