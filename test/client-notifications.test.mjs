@@ -298,6 +298,90 @@ test('tag：macOS 按会话替换，Windows 一律不发（社区实测带 tag �
   assert.equal(win.notifications.instances[0].options.tag, undefined)
 })
 
+// ── 阻塞性通知的存亡（Windows 关键行为）────────────────────────────────
+//
+// Windows 上 `notification.close()` 会把 toast 从通知中心**摘掉**（实测：
+// 关闭后该 toast 在 Windows 通知库里连行都不剩）。因此「后来的信息类通知
+// 顺手 close 掉前一条审批卡」在 Windows 上等于「审批请求凭空消失」——
+// 用户回到电脑只看到一条无关的完成提示，需要处理的那个请求没有任何痕迹。
+//
+// 这组用例钉住：信息类事件**不得**关掉同会话还等着处理的阻塞卡。
+
+test('阻塞性通知不被后续信息类事件关掉（Windows 上审批卡会整条消失）', () => {
+  const { harness, notifications } = setup()
+  // 先来一个需要用户处理的审批。
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a1', sessionId: 's1', toolName: 'bash' } } })
+  assert.equal(notifications.instances.length, 1)
+  const approval = notifications.instances[0]
+  assert.equal(approval.options.requireInteraction, true)
+
+  // 随后同一会话走完一轮（信息类）。
+  harness.pushStatus({ s1: { running: false } })
+  harness.pushStatus({ s1: { running: true } })
+  harness.pushStatus({ s1: { running: false } })
+
+  assert.equal(notifications.instances.length, 2, '轮次完成应另外弹一条')
+  assert.equal(approval.closed, false, '审批卡不得被信息类通知关掉（Windows 上关掉即消失）')
+  assert.equal(notifications.instances[1].options.requireInteraction, false)
+})
+
+test('阻塞性通知不被同会话的出错通知关掉', () => {
+  const { harness, notifications } = setup()
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a1', sessionId: 's1', toolName: 'bash' } } })
+  harness.pushError('s1', 'boom')
+  assert.equal(notifications.instances.length, 2)
+  assert.equal(notifications.instances[0].closed, false, '审批卡不得被出错通知顶掉')
+})
+
+test('阻塞性通知不被同会话的「会话结束」通知关掉', () => {
+  const { harness, notifications } = setup()
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'question', key: 'q1', sessionId: 's1', questions: [{ question: '继续吗' }] } } })
+  harness.setSessions([])
+  assert.equal(notifications.instances.length, 2)
+  assert.equal(notifications.instances[0].closed, false, '提问卡不得被「会话结束」顶掉')
+})
+
+test('新的阻塞请求顶掉同会话旧的阻塞请求（用户已处理完前一个）', () => {
+  const { harness, notifications } = setup()
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a1', sessionId: 's1', toolName: 'bash' } } })
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a2', sessionId: 's1', toolName: 'read' } } })
+  assert.equal(notifications.instances.length, 2)
+  assert.equal(notifications.instances[0].closed, true, '旧的阻塞请求应被新的取代')
+  assert.equal(notifications.instances[1].closed, false)
+})
+
+test('信息类通知之间仍按会话替换（不堆叠）', () => {
+  const { harness, notifications } = setup()
+  harness.pushStatus({ s1: { running: false } })   // 轮次完成
+  harness.pushError('s1', 'boom')                    // 出错：同属信息类，应顶掉上一条
+  assert.equal(notifications.instances.length, 2)
+  assert.equal(notifications.instances[0].closed, true, '上一条信息卡应被替换')
+})
+
+test('信息卡与阻塞卡并存：点击阻塞卡不误伤同会话的信息卡', () => {
+  const { harness, notifications } = setup()
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a1', sessionId: 's1', toolName: 'bash' } } })
+  harness.pushStatus({ s1: { running: false } })   // 信息卡：轮次完成
+  harness.pushError('s1', 'boom')                    // 信息卡：出错（顶掉轮次完成）
+  assert.equal(notifications.instances.length, 3)
+  const approval = notifications.instances[0]
+  const latestInfo = notifications.instances[2]
+  // 点掉阻塞卡：只释放它自己那条持有引用，同会话的信息卡仍被持有。
+  approval.click()
+  assert.equal(approval.closed, true)
+  assert.equal(latestInfo.closed, false, '点掉阻塞卡不应顺手关掉信息卡')
+  // 后续再来一条信息：旧的信息卡应被正常替换（说明它的持有引用没被误删）。
+  harness.pushError('s1', 'boom-2')
+  assert.equal(latestInfo.closed, true, '信息卡仍能被后续信息卡替换（持有引用未被误删）')
+})
+
+test('点击阻塞卡：导航到对应会话', () => {
+  const { harness, notifications, bundle } = setup()
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a1', sessionId: 's1', toolName: 'bash' } } })
+  notifications.instances[0].click()
+  assert.deepEqual(harness.opened, ['s1'])
+})
+
 test('权限未授予：静默不投递（不抛错）', () => {
   const { harness, notifications } = setup({ permission: 'denied' })
   assert.doesNotThrow(() => harness.pushError('s1', 'boom'))

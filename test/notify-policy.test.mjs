@@ -5,8 +5,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  approvalDetailOf, errorDedupKey, isTurnEnd, localizedTextOf, notificationTagOf,
-  parseClockMinutes, pruneExpired, quietHoursActive, sessionLabelOf, summaryOf,
+  approvalDetailOf, errorDedupKey, isTurnEnd, localizedTextOf, noticePriorityOf, notificationTagOf,
+  parseClockMinutes, pruneExpired, quietHoursActive, replacesPreviousNotice, sessionLabelOf, summaryOf,
 } from '../lib/notify-policy.js'
 
 test('summaryOf: 空、undefined 与 null 归一为空串', () => {
@@ -125,6 +125,26 @@ test('notificationTagOf: 非 Windows 按会话替换，Windows 不发 tag', () =
   // macOS 的 platform 串是 Darwin：`\bwin` 不能在这里命中（否则 mac 会被误判成 Windows）。
   assert.equal(notificationTagOf('Darwin', 's1'), 'dsh-notify:s1')
   assert.equal(notificationTagOf('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 's1'), 'dsh-notify:s1')
+})
+
+test('noticePriorityOf: 审批与提问是阻塞性，其余是信息类', () => {
+  assert.equal(noticePriorityOf('approval'), 'blocking')
+  assert.equal(noticePriorityOf('question'), 'blocking')
+  assert.equal(noticePriorityOf('turn'), 'info')
+  assert.equal(noticePriorityOf('sessionDone'), 'info')
+  assert.equal(noticePriorityOf('error'), 'info')
+  assert.equal(noticePriorityOf('subagent'), 'info')
+})
+
+test('replacesPreviousNotice: 阻塞卡只被新的阻塞卡顶掉，信息卡只顶掉信息卡', () => {
+  // 阻塞卡 vs 信息类新通知：**不顶掉**——Windows 上 close 会把 toast 从通知
+  // 中心摘掉，等于「审批请求凭空消失」。
+  assert.equal(replacesPreviousNotice('blocking', 'info'), false)
+  // 信息卡 vs 阻塞类新通知：顶掉（更重要的请求优先）。
+  assert.equal(replacesPreviousNotice('info', 'blocking'), true)
+  // 同类之间：按会话替换，不堆叠。
+  assert.equal(replacesPreviousNotice('info', 'info'), true)
+  assert.equal(replacesPreviousNotice('blocking', 'blocking'), true)
 })
 
 test('isTurnEnd: 只有 running true → false 才算一轮结束', () => {

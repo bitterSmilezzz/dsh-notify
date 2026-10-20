@@ -23,8 +23,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: pulls the session controller merge (ctx.sessions) and remote events.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import {
-  approvalDetailOf, errorDedupKey, isTurnEnd, notificationTagOf, parseClockMinutes,
-  pruneExpired, quietHoursActive, sessionLabelOf, summaryOf, systemSoundSuppressed,
+  approvalDetailOf, errorDedupKey, isTurnEnd, noticePriorityOf, notificationTagOf, parseClockMinutes,
+  pruneExpired, quietHoursActive, replacesPreviousNotice, sessionLabelOf, summaryOf, systemSoundSuppressed,
+  type NoticePriority,
 } from '../notify-policy.ts'
 import type { NotifyConfig } from './config.ts'
 import type { LocaleT } from './locale.ts'
@@ -180,7 +181,17 @@ export function applyNotifications(
   if (uiSession === undefined || typeof uiSession.sessionStatus?.subscribe !== 'function') return
 
   /** 已发出的通知（按会话）：既用于替换，也持有引用防 GC。 */
-  const live = new Map<string, { notification: Notification; at: number }>()
+  const live = new Map<string, { notification: Notification; at: number; priority: NoticePriority }>()
+  /**
+   * 阻塞性通知（审批 / 提问）单独记账：它们带 `requireInteraction`，**必须
+   * 留在通知中心等人来点**，不能被同会话后续的信息类通知顶掉。
+   *
+   * Windows 上这条差别是生死问题：`close()` 会把 toast 从通知中心摘掉。
+   * 旧实现用一张 `live` 表管所有通知，于是「审批卡 → 轮次完成」会把审批卡
+   * 关掉，用户回到电脑只看到一条无关的完成提示，需要处理的那个请求凭空
+   * 消失。分开记账后，信息类通知只顶掉同类，阻塞卡一直留到用户点击。
+   */
+  const blockingLive = new Map<string, { notification: Notification; at: number }>()
   /** 各类去重表。 */
   const lastTurnAt = new Map<string, number>()
   const lastErrorAt = new Map<string, number>()
@@ -251,8 +262,24 @@ export function applyNotifications(
     }
   }
 
-  /** 丢掉一条通知的持有引用。 */
-  const release = (sessionId: string): void => { live.delete(sessionId) }
+  /**
+   * 丢掉一条通知的持有引用。
+   *
+   * ⚠ 只在**存的就是这一条**时才删：同一会话可能同时有一条信息卡与一条阻塞
+   * 卡（见 `blockingLive`），`onclose` 回调不知道自己是哪一条，无条件按会话删
+   * 会误伤另一条——那条卡从此不再被替换，也不再被持有（Electron 通知被 GC 后
+   * 点击回调不再触发）。
+   * @param sessionId - 会话身份。
+   * @param notification - 触发回调的那条通知。
+   */
+  const release = (sessionId: string, notification: Notification): void => {
+    if (live.get(sessionId)?.notification === notification) live.delete(sessionId)
+  }
+
+  /** 丢掉一条阻塞性通知的持有引用（同 `release`：只删存着的那一条）。 */
+  const releaseBlocking = (sessionId: string, notification: Notification): void => {
+    if (blockingLive.get(sessionId)?.notification === notification) blockingLive.delete(sessionId)
+  }
 
   /** 策略过滤 + 真投递。所有失败静默。 */
   const notify = (notice: Notice): void => {
@@ -270,10 +297,26 @@ export function applyNotifications(
 
       // 同一会话的新通知替换旧卡（tag 相同由系统合并，这里再显式关掉上一条，
       // 两条路径互为兜底：Windows 不发 tag，只能靠 close）。
-      const previous = live.get(notice.sessionId)
-      if (previous !== undefined) {
-        try { previous.notification.close() } catch { /* 已关闭 */ }
-        release(notice.sessionId)
+      //
+      // ⚠ 但**不能无条件关**：阻塞性通知（审批 / 提问）带 requireInteraction，
+      // 留在通知中心等人来点。若随后一条信息类通知（轮次完成 / 出错 / 会话结束）
+      // 把它关掉，Windows 会把 toast 从通知中心摘掉——用户回到电脑只看到一条
+      // 无关提示，那个需要处理的请求凭空消失。规则见 replacesPreviousNotice：
+      // 阻塞卡只被新的阻塞卡顶掉，信息卡只顶掉信息卡。
+      const priority = noticePriorityOf(kind)
+      if (priority === 'blocking') {
+        // 新的阻塞请求取代同会话旧的阻塞请求（用户已经处理完前一个）。
+        const previousBlocking = blockingLive.get(notice.sessionId)
+        if (previousBlocking !== undefined) {
+          try { previousBlocking.notification.close() } catch { /* 已关闭 */ }
+          releaseBlocking(notice.sessionId, previousBlocking.notification)
+        }
+      } else {
+        const previous = live.get(notice.sessionId)
+        if (previous !== undefined && replacesPreviousNotice(previous.priority, priority)) {
+          try { previous.notification.close() } catch { /* 已关闭 */ }
+          release(notice.sessionId, previous.notification)
+        }
       }
       const tag = notificationTagOf(platform, notice.sessionId)
       const notification = new Notification(notice.title, {
@@ -287,9 +330,14 @@ export function applyNotifications(
       })
       // 音效在通知构造之后播放：构造失败（权限撤销等）就不该只响一声没有横幅。
       playNoticeSound(kind, cfg.sound)
-      live.set(notice.sessionId, { notification, at: Date.now() })
+      if (priority === 'blocking') {
+        blockingLive.set(notice.sessionId, { notification, at: Date.now() })
+      } else {
+        live.set(notice.sessionId, { notification, at: Date.now(), priority })
+      }
       notification.onclick = () => {
-        release(notice.sessionId)
+        release(notice.sessionId, notification)
+        releaseBlocking(notice.sessionId, notification)
         try { window.focus() } catch { /* 浏览器可能拒绝聚焦 */ }
         // 导航入口缺失或拒绝时不抛错：通知已送达，点击失败只留一条可见提示。
         if (!openSession(notice.sessionId)) {
@@ -297,8 +345,8 @@ export function applyNotifications(
         }
         try { notification.close() } catch { /* 已关闭 */ }
       }
-      notification.onclose = () => { release(notice.sessionId) }
-      notification.onerror = () => { release(notice.sessionId) }
+      notification.onclose = () => { release(notice.sessionId, notification); releaseBlocking(notice.sessionId, notification) }
+      notification.onerror = () => { release(notice.sessionId, notification); releaseBlocking(notice.sessionId, notification) }
       lastNotifiedAt.set(notice.sessionId, Date.now())
     } catch {
       // 构造失败（权限被撤销、平台不支持）：静默，通知是增益不是依赖。
@@ -310,6 +358,10 @@ export function applyNotifications(
     const now = Date.now()
     for (const [key, entry] of live) {
       if (now - entry.at >= HOLD_MS) live.delete(key)
+    }
+    // 阻塞性通知同样要过期回收：它一直留在通知中心，引用不放手会无界增长。
+    for (const [key, entry] of blockingLive) {
+      if (now - entry.at >= HOLD_MS) blockingLive.delete(key)
     }
     pruneExpired(lastTurnAt, now, TURN_DEDUP_MS)
     pruneExpired(lastErrorAt, now, ERROR_DEDUP_MS)

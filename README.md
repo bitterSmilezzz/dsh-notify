@@ -86,7 +86,9 @@ client 半区只读取官方事件与状态（`ctx.uiSession.sessionStatus`、`a
 ## 已知风险
 
 - **页面/窗口关闭后收不到通知**：Web Notification 依赖页面存活。桌面 App 收进托盘仍能收；完全退出则不能。
-- **Windows 上不发 `tag`**：社区实测带 `tag` 的 `new Notification()` 会被浏览器接受但 toast 永不送达（Zhiyi-Zhao/dsh-notify，单机实测）。因此 Windows 退化为**堆叠**而不是按会话替换——不替换比不弹代价小。
+- **Windows 上不发 `tag`**：社区实测带 `tag` 的 `new Notification()` 会被浏览器接受但 toast 永不送达（Zhiyi-Zhao/dsh-notify，单机实测）。因此 Windows 侧**不依赖 `tag` 做替换**——替换由插件显式关闭上一张同会话的卡完成（见下条），所以按会话替换在 Windows 上依然成立。
+- **审批 / 提问的通知不会被后续事件顶掉**：这两类带 `requireInteraction`，会留在通知中心等人处理。Windows 上关闭一条 toast 会把它**从通知中心摘掉**，所以同会话随后发生的「轮次完成 / 出错 / 会话结束」不会关掉待处理的审批卡——否则用户回到电脑只看到一条无关提示，需要处理的请求凭空消失。信息类通知之间仍按会话替换，不堆叠。
+- **Windows 通知的来源署名是宿主 App 本身**（即 `DeepSeek Harness`），不是插件：通知由渲染进程的 Web Notification 发出，Windows 把它记在宿主 App 的身份下。若在 Windows「设置 → 系统 → 通知」里关掉该来源，本插件的通知会静默不弹。
 - **macOS 首次通知可能被系统静默抑制**：系统设置里的「专注模式」「定时摘要」会把横幅收进摘要；若一条都看不到，先检查 系统设置 → 通知 → DeepSeek Harness。
 - **多个客户端同时在线时会各弹一次**（桌面窗口 + 浏览器标签页）：去重是客户端本地的，跨客户端没有仲裁。
 - **免打扰时段按本机时间判定**，跨时区/手动改表期间以当前系统时间为准。

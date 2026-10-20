@@ -163,7 +163,11 @@ export function quietHoursActive(nowMinutes: number, startMinutes: number, endMi
  * **Windows 例外**：社区实测（Zhiyi-Zhao/dsh-notify）带 `tag` 的
  * `new Notification()` 在 Windows 上会被浏览器接受但 toast 永不送达。
  * 该结论是单机实测而非普遍规律，但「不弹」比「不替换」代价大得多，
- * 因此 Windows 一律不发 tag（退化为堆叠），其余平台按会话替换。
+ * 因此 Windows 一律不发 tag，其余平台按会话替换。
+ *
+ * ⚠ Windows 上**并没有退化成堆叠**：替换并不依赖 `tag`，而是靠插件自己
+ * 显式 `close()` 上一张同会话的卡（见 notifications.ts 的 `notify()`）。
+ * `tag` 只是系统侧的合并兜底，去掉它不影响按会话替换。
  *
  * 判据按整词匹配 `win`：`Win32` / `Windows NT …` 命中，而 macOS 的
  * `Darwin` 不会（`r` 与 `w` 之间没有词边界，`\bwin` 不成立）。
@@ -174,6 +178,47 @@ export function quietHoursActive(nowMinutes: number, startMinutes: number, endMi
 export function notificationTagOf(platform: string, sessionId: string): string | undefined {
   if (/\bwin/iu.test(platform)) return undefined
   return `dsh-notify:${sessionId}`
+}
+
+/**
+ * 通知的优先级档位。
+ *
+ * - `blocking`：**需要用户动手处理**的通知（审批 / 提问）。它们带
+ *   `requireInteraction`，本该留在通知中心等人来点。
+ * - `info`：信息类通知（轮次完成 / 会话结束 / 出错 / 子代理完成）。
+ */
+export type NoticePriority = 'blocking' | 'info'
+
+/**
+ * 通知类别的优先级档位。
+ *
+ * 只有审批与提问是阻塞性的：它们卡住会话，不处理就继续不下去，通知必须
+ * 一直留在通知中心。其余事件都是「已经发生过了」的信息，被同会话的更新
+ * 顶掉是合理的。
+ * @param kind - 事件类别（`approval` / `question` / `turn` / …）。
+ * @returns 该类别的优先级档位。
+ */
+export function noticePriorityOf(kind: string): NoticePriority {
+  return kind === 'approval' || kind === 'question' ? 'blocking' : 'info'
+}
+
+/**
+ * 同一会话里，新通知是否顶掉旧通知。
+ *
+ * ⚠ 这条判定是「Windows 上审批通知会自己消失」的根因修复：
+ * 旧实现无条件 `close()` 上一张同会话的卡，于是**随后的信息类通知
+ * （轮次完成 / 出错 / 会话结束）会把还等着用户处理的审批卡关掉**。
+ * Windows 上 `close()` 会把 toast 从通知中心摘掉，审批请求就此消失，
+ * 用户回来只看到一条无关信息——恰恰是通知最该提醒的时候。
+ *
+ * 规则：**阻塞卡只被新的阻塞卡顶掉；信息卡只顶掉信息卡。** 阻塞卡与
+ * 信息卡并存（各占一条 toast），直到用户点击、会话结束或被同类请求取代。
+ * @param previous - 旧通知的档位。
+ * @param next - 新通知的档位。
+ * @returns 新通知顶掉旧通知时为 true。
+ */
+export function replacesPreviousNotice(previous: NoticePriority, next: NoticePriority): boolean {
+  return next === 'blocking' || previous === next
 }
 
 /**
