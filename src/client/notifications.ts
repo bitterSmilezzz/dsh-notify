@@ -318,7 +318,7 @@ export function applyNotifications(
           release(notice.sessionId, previous.notification)
         }
       }
-      const tag = notificationTagOf(platform, notice.sessionId)
+      const tag = notificationTagOf(platform, notice.sessionId, priority)
       const notification = new Notification(notice.title, {
         body: notice.body,
         ...(tag === undefined ? {} : { tag }),

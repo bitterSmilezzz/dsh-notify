@@ -288,14 +288,38 @@ test('会话身份缓存随行回收：移除后的迟到事件回落短 id，�
   assert.doesNotMatch(notifications.instances.at(-1).options.body, /旧标题/)
 })
 
-test('tag：macOS 按会话替换，Windows 一律不发（社区实测带 tag 不达）', () => {
+test('tag：信息类按会话替换、阻塞类用独立 tag；Windows 浏览器不发，Electron 宿主照发', () => {
   const mac = setup()
   mac.harness.pushError('s1', 'boom')
   assert.equal(mac.notifications.instances[0].options.tag, 'dsh-notify:s1')
 
-  const win = setup({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', platform: 'Win32' })
-  win.harness.pushError('s1', 'boom')
-  assert.equal(win.notifications.instances[0].options.tag, undefined)
+  // Windows + 浏览器：社区实测带 tag 不送达，保守不发。
+  const winBrowser = setup({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/152.0.0.0', platform: 'Win32' })
+  winBrowser.harness.pushError('s1', 'boom')
+  assert.equal(winBrowser.notifications.instances[0].options.tag, undefined)
+
+  // Windows + Electron（DSH 桌面版）：Electron 44.7.0 实测可送达且能替换。
+  const winElectron = setup({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) DeepSeek/0.2.1-rc.2 Chrome/152.0.0.0 Electron/44.7.0 Safari/537.36',
+    platform: 'Win32',
+  })
+  winElectron.harness.pushError('s1', 'boom')
+  assert.equal(winElectron.notifications.instances[0].options.tag, 'dsh-notify:s1')
+})
+
+test('tag：阻塞卡与信息卡的 tag 不同（否则系统侧「同 tag 即替换」会顶掉审批卡）', () => {
+  const { harness, notifications } = setup()
+  harness.pushStatus({ s1: { running: true, pendingInteraction: { kind: 'approval', key: 'a1', sessionId: 's1', toolName: 'bash' } } })
+  harness.pushStatus({ s1: { running: false } })
+  harness.pushStatus({ s1: { running: true } })
+  harness.pushStatus({ s1: { running: false } })
+  const approval = notifications.instances.find((n) => n.options.requireInteraction === true)
+  const info = notifications.instances.find((n) => n.options.requireInteraction === false)
+  assert.ok(approval !== undefined, '应有一条审批通知')
+  assert.ok(info !== undefined, '应有一条信息类通知')
+  assert.notEqual(approval.options.tag, info.options.tag, '两类通知必须用不同 tag')
+  assert.equal(approval.options.tag, 'dsh-notify:s1:blocking')
+  assert.equal(info.options.tag, 'dsh-notify:s1')
 })
 
 // ── 阻塞性通知的存亡（Windows 关键行为）────────────────────────────────

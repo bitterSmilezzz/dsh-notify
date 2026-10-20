@@ -157,30 +157,6 @@ export function quietHoursActive(nowMinutes: number, startMinutes: number, endMi
 }
 
 /**
- * 通知的会话级 `tag`：同一会话的新通知替换旧卡，避免并行会话刷屏
- * （ccnotify / omdsh 的通行做法）。
- *
- * **Windows 例外**：社区实测（Zhiyi-Zhao/dsh-notify）带 `tag` 的
- * `new Notification()` 在 Windows 上会被浏览器接受但 toast 永不送达。
- * 该结论是单机实测而非普遍规律，但「不弹」比「不替换」代价大得多，
- * 因此 Windows 一律不发 tag，其余平台按会话替换。
- *
- * ⚠ Windows 上**并没有退化成堆叠**：替换并不依赖 `tag`，而是靠插件自己
- * 显式 `close()` 上一张同会话的卡（见 notifications.ts 的 `notify()`）。
- * `tag` 只是系统侧的合并兜底，去掉它不影响按会话替换。
- *
- * 判据按整词匹配 `win`：`Win32` / `Windows NT …` 命中，而 macOS 的
- * `Darwin` 不会（`r` 与 `w` 之间没有词边界，`\bwin` 不成立）。
- * @param platform - `navigator.platform` 或 userAgent 形态的平台串。
- * @param sessionId - 会话身份。
- * @returns tag 字符串；Windows 返回 undefined。
- */
-export function notificationTagOf(platform: string, sessionId: string): string | undefined {
-  if (/\bwin/iu.test(platform)) return undefined
-  return `dsh-notify:${sessionId}`
-}
-
-/**
  * 通知的优先级档位。
  *
  * - `blocking`：**需要用户动手处理**的通知（审批 / 提问）。它们带
@@ -200,6 +176,51 @@ export type NoticePriority = 'blocking' | 'info'
  */
 export function noticePriorityOf(kind: string): NoticePriority {
   return kind === 'approval' || kind === 'question' ? 'blocking' : 'info'
+}
+
+/**
+ * 当前宿主是否支持用 `tag` 做系统侧的合并。
+ *
+ * 非 Windows 一直支持（macOS / Linux 的 `tag` 语义是「同 tag 的新通知替换旧
+ * 通知」）。Windows 上的旧说法是「带 `tag` 的通知不会被送达」，那条社区实测
+ * 针对的是**浏览器**（Zhiyi-Zhao/dsh-notify，单机实测），在 Electron 宿主里
+ * 不成立：Electron 44.7.0（DSH 桌面版同版）实测带 `tag` 的通知**照常送达**，
+ * 且同 `tag` 的第二条通知会**替换**第一条（Windows 通知库只留一行）。
+ *
+ * 所以判据是「Windows + 浏览器」才不发 `tag`，Electron 宿主照发。
+ * @param platform - `navigator.platform` 与 userAgent 拼成的平台串。
+ * @returns 该宿主可以依赖 `tag` 做合并时为 true。
+ */
+export function tagSupportedBy(platform: string): boolean {
+  if (!/\bwin/iu.test(platform)) return true
+  // Electron 宿主：Electron 44.7.0 实测可送达且能替换。
+  return /\bElectron\//iu.test(platform)
+}
+
+/**
+ * 通知的会话级 `tag`：同一会话的新通知替换旧卡，避免并行会话刷屏
+ * （ccnotify / omdsh 的通行做法）。
+ *
+ * **阻塞性与信息类用不同的 tag**。系统侧「同 tag 即替换」是无条件的，所以若
+ * 两类共用一个 tag，同会话随后的一条信息类通知（轮次完成 / 出错 / 会话结束）
+ * 会把还等着用户处理的审批卡**替换掉**——用户回到电脑只看到一条无关提示，
+ * 需要处理的那个请求凭空消失。分开 tag 后：信息卡之间互相替换（不堆叠），
+ * 阻塞卡只被新的阻塞卡替换，两者并存。
+ *
+ * 判据按整词匹配 `win`：`Win32` / `Windows NT …` 命中，而 macOS 的
+ * `Darwin` 不会（`r` 与 `w` 之间没有词边界，`\bwin` 不成立）。
+ * @param platform - `navigator.platform` 与 userAgent 拼成的平台串。
+ * @param sessionId - 会话身份。
+ * @param priority - 通知档位；阻塞性与信息类用不同的 tag。
+ * @returns tag 字符串；宿主不支持 `tag` 时返回 undefined。
+ */
+export function notificationTagOf(
+  platform: string,
+  sessionId: string,
+  priority: NoticePriority = 'info',
+): string | undefined {
+  if (!tagSupportedBy(platform)) return undefined
+  return priority === 'blocking' ? `dsh-notify:${sessionId}:blocking` : `dsh-notify:${sessionId}`
 }
 
 /**

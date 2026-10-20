@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import {
   approvalDetailOf, errorDedupKey, isTurnEnd, localizedTextOf, noticePriorityOf, notificationTagOf,
   parseClockMinutes, pruneExpired, quietHoursActive, replacesPreviousNotice, sessionLabelOf, summaryOf,
+  tagSupportedBy,
 } from '../lib/notify-policy.js'
 
 test('summaryOf: 空、undefined 与 null 归一为空串', () => {
@@ -117,14 +118,34 @@ test('quietHoursActive: 起止相同视为未配置（不能变成全天静音�
   assert.equal(quietHoursActive(12 * 60, 8 * 60, 8 * 60), false)
 })
 
-test('notificationTagOf: 非 Windows 按会话替换，Windows 不发 tag', () => {
+test('notificationTagOf: 信息类按会话替换，阻塞类用独立 tag', () => {
   assert.equal(notificationTagOf('MacIntel', 's1'), 'dsh-notify:s1')
   assert.equal(notificationTagOf('Linux x86_64', 's1'), 'dsh-notify:s1')
-  assert.equal(notificationTagOf('Win32', 's1'), undefined)
-  assert.equal(notificationTagOf('Windows NT 10.0; Win64; x64', 's1'), undefined)
   // macOS 的 platform 串是 Darwin：`\bwin` 不能在这里命中（否则 mac 会被误判成 Windows）。
   assert.equal(notificationTagOf('Darwin', 's1'), 'dsh-notify:s1')
   assert.equal(notificationTagOf('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 's1'), 'dsh-notify:s1')
+  // 阻塞类必须用**不同的 tag**：系统侧「同 tag 即替换」是无条件的，
+  // 两类共用一个 tag 会让信息类通知把还等着处理的审批卡替换掉。
+  assert.equal(notificationTagOf('MacIntel', 's1', 'blocking'), 'dsh-notify:s1:blocking')
+  assert.equal(notificationTagOf('MacIntel', 's1', 'info'), 'dsh-notify:s1')
+  assert.notEqual(
+    notificationTagOf('MacIntel', 's1', 'blocking'),
+    notificationTagOf('MacIntel', 's1', 'info'),
+  )
+})
+
+test('tagSupportedBy: Windows 浏览器不发 tag，Windows 的 Electron 宿主照发', () => {
+  // Windows + 浏览器：社区实测带 tag 不送达，保守不发。
+  assert.equal(tagSupportedBy('Win32 Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/152.0.0.0'), false)
+  assert.equal(notificationTagOf('Win32 Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/152.0.0.0', 's1'), undefined)
+  // Windows + Electron（DSH 桌面版）：Electron 44.7.0 实测带 tag 照常送达且能替换。
+  const electron = 'Win32 Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) DeepSeek/0.2.1-rc.2 Chrome/152.0.0.0 Electron/44.7.0 Safari/537.36'
+  assert.equal(tagSupportedBy(electron), true)
+  assert.equal(notificationTagOf(electron, 's1'), 'dsh-notify:s1')
+  assert.equal(notificationTagOf(electron, 's1', 'blocking'), 'dsh-notify:s1:blocking')
+  // 非 Windows：一直支持。
+  assert.equal(tagSupportedBy('MacIntel Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'), true)
+  assert.equal(tagSupportedBy('Linux x86_64'), true)
 })
 
 test('noticePriorityOf: 审批与提问是阻塞性，其余是信息类', () => {
